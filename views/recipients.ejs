@@ -1,0 +1,105 @@
+<%- include('partials/header') %>
+
+<div class="d-flex justify-content-between align-items-center mt-4 mb-4">
+  <h2>WhatsApp Recipients</h2>
+  <a href="/recipients/new" class="btn btn-success">
+    <i class="fas fa-plus"></i> Add New Recipient
+  </a>
+</div>
+
+<% if (recipients.length > 0) { %>
+  <div class="card">
+    <div class="card-body">
+      <div class="table-responsive">
+        <table class="table table-hover">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Phone Number</th>
+              <th>Status</th>
+              <th>Created</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% recipients.forEach(function(recipient) { %>
+              <tr>
+                <td><%= recipient.name %></td>
+                <td><%= recipient.number %></td>
+                <td>
+                  <% if (recipient.active) { %>
+                    <span class="badge bg-success">Active</span>
+                  <% } else { %>
+                    <span class="badge bg-secondary">Inactive</span>
+                  <% } %>
+                </td>
+                <td><%= new Date(recipient.createdAt).toLocaleDateString() %></td>
+                <td>
+                  <div class="btn-group btn-group-sm">
+                    <a href="/recipients/<%= recipient.id %>/edit" class="btn btn-warning" title="Edit Recipient">
+                      <i class="fas fa-edit"></i>
+                    </a>
+                    <button class="btn btn-danger delete-recipient" 
+                            data-id="<%= recipient.id %>" 
+                            data-name="<%= recipient.name %>" 
+                            title="Delete Recipient">
+                      <i class="fas fa-trash"></i>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+<% } else { %>
+  <div class="alert alert-info">
+    <p>No recipients configured yet.</p>
+    <a href="/recipients/new" class="btn btn-success mt-3">
+      <i class="fas fa-plus"></i> Add New Recipient
+    </a>
+  </div>
+<% } %>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  // Handle recipient deletion
+  const deleteButtons = document.querySelectorAll('.delete-recipient');
+  if (deleteButtons) {
+    deleteButtons.forEach(button => {
+      button.addEventListener('click', function(e) {
+        e.preventDefault();
+        const id = this.dataset.id;
+        const name = this.dataset.name;
+        
+        if (confirm(`Are you sure you want to delete the recipient "${name}"?`)) {
+          fetch(`/api/recipients/${id}`, {
+            method: 'DELETE'
+          })
+          .then(response => response.json())
+          .then(data => {
+            if (data.success) {
+              // Remove the row from the table
+              this.closest('tr').remove();
+              
+              // If no more rows, refresh the page to show the empty state
+              if (document.querySelectorAll('tbody tr').length === 0) {
+                window.location.reload();
+              }
+            } else {
+              alert(`Error: ${data.message}`);
+            }
+          })
+          .catch(error => {
+            alert(`Error: ${error.message}`);
+          });
+        }
+      });
+    });
+  }
+});
+</script>
+
+<%- include('partials/footer') %> 

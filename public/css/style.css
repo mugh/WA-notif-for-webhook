@@ -1,0 +1,264 @@
+/* Main styles for WhatsApp Webhook Manager */
+:root {
+  --primary-color: #25d366;
+  --secondary-color: #128c7e;
+  --dark-color: #075e54;
+  --light-color: #dcf8c6;
+  --danger-color: #ff3b30;
+  --success-color: #34c759;
+  --warning-color: #ffcc00;
+  --gray-color: #f0f0f0;
+}
+
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  margin: 0;
+  padding: 0;
+  background-color: #f5f5f5;
+}
+
+.container {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+/* Header */
+.header {
+  background-color: var(--dark-color);
+  color: white;
+  padding: 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.header h1 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+/* Navigation */
+.nav {
+  display: flex;
+  gap: 1rem;
+}
+
+.nav a {
+  color: white;
+  text-decoration: none;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  transition: background-color 0.3s;
+}
+
+.nav a:hover {
+  background-color: var(--secondary-color);
+}
+
+/* Login Form */
+.login-container {
+  max-width: 400px;
+  margin: 100px auto;
+  background-color: white;
+  padding: 2rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.form-group {
+  margin-bottom: 1rem;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+}
+
+.form-control {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 1rem;
+}
+
+.btn {
+  display: inline-block;
+  background-color: var(--primary-color);
+  color: white;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: background-color 0.3s;
+}
+
+.btn:hover {
+  background-color: var(--secondary-color);
+}
+
+.btn-block {
+  display: block;
+  width: 100%;
+}
+
+.alert {
+  padding: 1rem;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+}
+
+.alert-danger {
+  background-color: #ffebee;
+  color: var(--danger-color);
+  border: 1px solid #ffcdd2;
+}
+
+.alert-success {
+  background-color: #e8f5e9;
+  color: var(--success-color);
+  border: 1px solid #c8e6c9;
+}
+
+/* Dashboard */
+.card {
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  margin-bottom: 1.5rem;
+  overflow: hidden;
+}
+
+.card-header {
+  background-color: var(--dark-color);
+  color: white;
+  padding: 1rem;
+  font-weight: 500;
+}
+
+.card-body {
+  padding: 1.5rem;
+}
+
+.instance-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.instance-item {
+  border: 1px solid #eee;
+  border-radius: 4px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.instance-info {
+  flex: 1;
+}
+
+.instance-name {
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+}
+
+.instance-number {
+  color: #666;
+  margin-bottom: 0.5rem;
+}
+
+.instance-status {
+  display: inline-block;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.875rem;
+}
+
+.status-connected {
+  background-color: #e8f5e9;
+  color: var(--success-color);
+}
+
+.status-disconnected {
+  background-color: #ffebee;
+  color: var(--danger-color);
+}
+
+.status-pending {
+  background-color: #fff8e1;
+  color: var(--warning-color);
+}
+
+.instance-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.btn-sm {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.875rem;
+}
+
+.btn-primary {
+  background-color: var(--primary-color);
+}
+
+.btn-danger {
+  background-color: var(--danger-color);
+}
+
+.btn-warning {
+  background-color: var(--warning-color);
+  color: #333;
+}
+
+/* QR Code */
+.qr-container {
+  text-align: center;
+  padding: 2rem;
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  margin-bottom: 1.5rem;
+}
+
+.qr-code {
+  margin: 1rem auto;
+}
+
+/* Forms */
+.form-row {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.form-col {
+  flex: 1;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .form-row {
+    flex-direction: column;
+    gap: 0;
+  }
+  
+  .instance-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .instance-actions {
+    margin-top: 1rem;
+    width: 100%;
+    justify-content: flex-end;
+  }
+} 

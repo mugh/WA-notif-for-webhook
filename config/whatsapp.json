@@ -1,0 +1,12 @@
+{
+  "instances": [
+    {
+      "id": "default",
+      "name": "Default WhatsApp",
+      "recipientNumber": "6281234567890",
+      "status": "disconnected",
+      "lastConnected": null,
+      "webhookPath": "/webhook/default"
+    }
+  ]
+} 
