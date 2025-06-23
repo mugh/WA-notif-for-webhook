@@ -1,0 +1,133 @@
+<%- include('partials/header') %>
+
+<div class="max-w-md mx-auto bg-white p-8 rounded-lg shadow-md mt-10">
+  <h2 class="text-2xl font-bold text-center mb-6">Register</h2>
+  
+  <% if (typeof error !== 'undefined' && error) { %>
+    <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6 rounded">
+      <%= error %>
+    </div>
+  <% } %>
+
+  <% if (typeof message !== 'undefined' && message) { %>
+    <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mb-6 rounded">
+      <%= message %>
+    </div>
+  <% } %>
+  
+  <% if (step === 'register') { %>
+    <!-- Step 1: Registration Form -->
+    <form action="/register" method="POST">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      
+      <div class="mb-4">
+        <label for="username" class="block text-sm font-medium text-gray-700 mb-1">Username</label>
+        <input type="text" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" id="username" name="username" required autocomplete="username" pattern="[a-zA-Z0-9_-]{3,20}" title="Username must be 3-20 characters and can contain letters, numbers, underscores and hyphens">
+        <p class="text-xs text-gray-500 mt-1">3-20 characters, letters, numbers, underscores and hyphens only</p>
+      </div>
+      
+      <div class="mb-4">
+        <label for="phoneNumber" class="block text-sm font-medium text-gray-700 mb-1">Phone Number (WhatsApp)</label>
+        <input type="tel" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" id="phoneNumber" name="phoneNumber" placeholder="08xxxxxxxxxx or +62xxxxxxxxx" required autocomplete="tel">
+        <p class="text-xs text-gray-500 mt-1">Enter your WhatsApp number for OTP verification</p>
+      </div>
+      
+      <div class="mb-4">
+        <label for="password" class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+        <input type="password" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" id="password" name="password" required autocomplete="new-password" minlength="8" pattern="(?=.*\d)(?=.*[a-z])(?=.*[A-Z]).{8,}" title="Must contain at least one number, one uppercase and lowercase letter, and at least 8 characters">
+        <p class="text-xs text-gray-500 mt-1">Minimum 8 characters with numbers, uppercase and lowercase letters</p>
+      </div>
+      
+      <div class="mb-6">
+        <label for="confirmPassword" class="block text-sm font-medium text-gray-700 mb-1">Confirm Password</label>
+        <input type="password" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" id="confirmPassword" name="confirmPassword" required autocomplete="new-password">
+      </div>
+      
+      <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded transition-colors">Send OTP</button>
+      
+      <div class="text-center mt-4">
+        <p class="text-gray-600">Already have an account? <a href="/login" class="text-blue-600 hover:text-blue-800">Login</a></p>
+      </div>
+    </form>
+  <% } else if (step === 'verify') { %>
+    <!-- Step 2: OTP Verification -->
+    <div class="text-center mb-6">
+      <div class="bg-blue-50 p-4 rounded-lg mb-4">
+        <svg class="mx-auto h-12 w-12 text-blue-600 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
+        </svg>
+        <p class="text-sm text-blue-600">OTP sent to: <strong><%= phoneNumber %></strong></p>
+        <p class="text-xs text-blue-500 mt-1">Check your WhatsApp for the verification code</p>
+      </div>
+    </div>
+
+    <form action="/register/verify" method="POST">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      
+      <div class="mb-6">
+        <label for="otpCode" class="block text-sm font-medium text-gray-700 mb-1">Enter OTP Code</label>
+        <input type="text" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-center text-lg tracking-widest" id="otpCode" name="otpCode" placeholder="123456" maxlength="6" pattern="[0-9]{6}" inputmode="numeric" required>
+        <p class="text-xs text-gray-500 mt-1">Code expires in 5 minutes</p>
+      </div>
+      
+      <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded transition-colors">Verify & Register</button>
+      
+      <div class="text-center mt-4">
+        <p class="text-gray-600">
+          <a href="/register" class="text-blue-600 hover:text-blue-800">← Back to Registration</a>
+        </p>
+      </div>
+    </form>
+  <% } %>
+</div>
+
+<script>
+  // Auto-focus OTP input and format
+  document.addEventListener('DOMContentLoaded', function() {
+    const otpInput = document.getElementById('otpCode');
+    if (otpInput) {
+      otpInput.focus();
+      otpInput.addEventListener('input', function(e) {
+        // Remove non-digits
+        this.value = this.value.replace(/\D+/g, '');
+        
+        // Auto-submit when 6 digits are entered
+        if (this.value.length === 6) {
+          this.form.submit();
+        }
+      });
+    }
+
+    // Phone number formatting
+    const phoneInput = document.getElementById('phoneNumber');
+    if (phoneInput) {
+      phoneInput.addEventListener('input', function(e) {
+        let value = this.value.replace(/\D+/g, '');
+        if (value.startsWith('62')) {
+          this.value = '+' + value;
+        } else if (value.startsWith('0')) {
+          this.value = value;
+        } else if (value.length > 0) {
+          this.value = '0' + value;
+        }
+      });
+    }
+    
+    // Password validation
+    const passwordInput = document.getElementById('password');
+    const confirmPasswordInput = document.getElementById('confirmPassword');
+    const registerForm = document.querySelector('form[action="/register"]');
+    
+    if (registerForm && passwordInput && confirmPasswordInput) {
+      registerForm.addEventListener('submit', function(e) {
+        if (passwordInput.value !== confirmPasswordInput.value) {
+          e.preventDefault();
+          alert('Passwords do not match');
+          confirmPasswordInput.focus();
+        }
+      });
+    }
+  });
+</script>
+
+<%- include('partials/footer') %> 

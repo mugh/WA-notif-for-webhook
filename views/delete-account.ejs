@@ -1,0 +1,224 @@
+<%- include('partials/header') %>
+
+<div class="max-w-md mx-auto bg-white p-8 rounded-lg shadow-md">
+  <h2 class="text-2xl font-bold text-center mb-6 text-red-600">Delete Account</h2>
+  
+  <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6 rounded">
+    <div class="flex">
+      <div class="flex-shrink-0">
+        <i class="fas fa-exclamation-triangle"></i>
+      </div>
+      <div class="ml-3">
+        <h3 class="text-sm font-medium">Warning!</h3>
+        <div class="mt-2 text-sm">
+          <p>This action cannot be undone. Deleting your account will:</p>
+          <ul class="list-disc list-inside mt-2 space-y-1">
+            <li>Permanently delete all your webhooks</li>
+            <li>Remove all recipient contacts</li>
+            <li>Delete your account data</li>
+            <li>Cancel any active subscriptions</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <% if (typeof error !== 'undefined' && error) { %>
+    <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6 rounded">
+      <%= error %>
+    </div>
+  <% } %>
+  
+  <form action="/delete-account" method="POST" id="deleteAccountForm">
+    <div class="mb-4">
+      <label for="password" class="block text-gray-700 text-sm font-bold mb-2">Confirm Your Password</label>
+      <input type="password" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" id="password" name="password" required>
+      <p class="text-xs text-gray-600 mt-1">Enter your current password to confirm account deletion</p>
+    </div>
+    
+    <div class="mb-6">
+      <label class="flex items-center">
+        <input type="checkbox" id="confirmDelete" name="confirmDelete" class="mr-2" required>
+        <span class="text-sm text-gray-700">I understand that this action cannot be undone and I want to permanently delete my account</span>
+      </label>
+    </div>
+    
+    <div class="flex items-center justify-between">
+      <button type="submit" id="deleteBtn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition-colors disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+        Delete My Account
+      </button>
+      <a href="/dashboard" class="text-gray-600 hover:text-gray-800">Cancel</a>
+    </div>
+  </form>
+</div>
+
+<!-- First Confirmation Modal -->
+<div id="firstConfirmModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50">
+  <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+    <div class="mt-3 text-center">
+      <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100 mb-4">
+        <i class="fas fa-exclamation-triangle text-red-600 text-xl"></i>
+      </div>
+      <h3 class="text-lg leading-6 font-bold text-red-600 mb-2">ARE YOU ABSOLUTELY SURE?</h3>
+      <div class="mt-2 px-4 py-3">
+        <p class="text-sm text-gray-700 font-medium mb-3">
+          This will <span class="text-red-600 font-bold">PERMANENTLY</span> delete your account and all associated data.
+        </p>
+        <p class="text-sm text-red-600 font-bold mb-3">
+          This action <span class="underline">CANNOT</span> be undone.
+        </p>
+      </div>
+      <div class="items-center px-4 py-3 flex gap-3 justify-center">
+        <button id="proceedToSecond" class="px-4 py-2 bg-red-600 text-white text-base font-medium rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-300">
+          Proceed with Deletion
+        </button>
+        <button id="cancelFirst" class="px-4 py-2 bg-gray-300 text-gray-700 text-base font-medium rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300">
+          Cancel
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Second Confirmation Modal -->
+<div id="secondConfirmModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50">
+  <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+    <div class="mt-3 text-center">
+      <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100 mb-4">
+        <i class="fas fa-skull-crossbones text-red-600 text-xl"></i>
+      </div>
+      <h3 class="text-lg leading-6 font-bold text-red-600 mb-2">LAST CHANCE!</h3>
+      <div class="mt-2 px-4 py-3">
+        <p class="text-sm text-gray-700 mb-3">
+          Once you click <span class="font-bold text-red-600">"DELETE FOREVER"</span>, your account will be permanently deleted.
+        </p>
+        <p class="text-sm text-red-600 font-bold">
+          Are you 100% certain you want to continue?
+        </p>
+      </div>
+      <div class="items-center px-4 py-3 flex gap-3 justify-center">
+        <button id="finalDelete" class="px-4 py-2 bg-red-600 text-white text-base font-bold rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-300">
+          DELETE FOREVER
+        </button>
+        <button id="cancelSecond" class="px-4 py-2 bg-gray-300 text-gray-700 text-base font-medium rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300">
+          Cancel
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Validation Error Modal -->
+<div id="errorModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50">
+  <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+    <div class="mt-3 text-center">
+      <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-yellow-100 mb-4">
+        <i class="fas fa-exclamation-circle text-yellow-600 text-xl"></i>
+      </div>
+      <h3 class="text-lg leading-6 font-medium text-gray-900 mb-2">Validation Error</h3>
+      <div class="mt-2 px-4 py-3">
+        <p id="errorMessage" class="text-sm text-gray-600"></p>
+      </div>
+      <div class="items-center px-4 py-3">
+        <button id="closeError" class="px-4 py-2 bg-blue-600 text-white text-base font-medium rounded-md w-20 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300">
+          OK
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const form = document.getElementById('deleteAccountForm');
+  const confirmCheckbox = document.getElementById('confirmDelete');
+  const deleteBtn = document.getElementById('deleteBtn');
+  const passwordInput = document.getElementById('password');
+  
+  // Modal elements
+  const firstModal = document.getElementById('firstConfirmModal');
+  const secondModal = document.getElementById('secondConfirmModal');
+  const errorModal = document.getElementById('errorModal');
+  const errorMessage = document.getElementById('errorMessage');
+  
+  // Enable/disable delete button based on checkbox
+  confirmCheckbox.addEventListener('change', function() {
+    deleteBtn.disabled = !this.checked;
+  });
+  
+  // Form submission with custom modals
+  form.addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    if (!confirmCheckbox.checked) {
+      showError('Please confirm that you want to delete your account.');
+      return;
+    }
+    
+    if (!passwordInput.value) {
+      showError('Please enter your password to confirm.');
+      return;
+    }
+    
+    // Show first confirmation modal
+    firstModal.classList.remove('hidden');
+  });
+  
+  // First modal buttons
+  document.getElementById('proceedToSecond').addEventListener('click', function() {
+    firstModal.classList.add('hidden');
+    secondModal.classList.remove('hidden');
+  });
+  
+  document.getElementById('cancelFirst').addEventListener('click', function() {
+    firstModal.classList.add('hidden');
+  });
+  
+  // Second modal buttons
+  document.getElementById('finalDelete').addEventListener('click', function() {
+    secondModal.classList.add('hidden');
+    // Submit the form
+    form.submit();
+  });
+  
+  document.getElementById('cancelSecond').addEventListener('click', function() {
+    secondModal.classList.add('hidden');
+  });
+  
+  // Error modal
+  document.getElementById('closeError').addEventListener('click', function() {
+    errorModal.classList.add('hidden');
+  });
+  
+  // Close modals when clicking outside
+  [firstModal, secondModal, errorModal].forEach(modal => {
+    modal.addEventListener('click', function(e) {
+      if (e.target === modal) {
+        modal.classList.add('hidden');
+      }
+    });
+  });
+  
+  // Function to show error modal
+  function showError(message) {
+    errorMessage.textContent = message;
+    errorModal.classList.remove('hidden');
+  }
+  
+  // Real-time password match validation (keep existing)
+  const newPassword = document.getElementById('newPassword');
+  const confirmPassword = document.getElementById('confirmPassword');
+  
+  if (confirmPassword) {
+    confirmPassword.addEventListener('input', function() {
+      if (newPassword && newPassword.value !== confirmPassword.value) {
+        confirmPassword.setCustomValidity('Passwords do not match');
+      } else {
+        confirmPassword.setCustomValidity('');
+      }
+    });
+  }
+});
+</script>
+
+<%- include('partials/footer') %> 

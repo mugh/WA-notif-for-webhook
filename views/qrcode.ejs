@@ -1,49 +1,76 @@
 <%- include('partials/header') %>
 
-<div class="d-flex justify-content-between align-items-center mt-4 mb-4">
-  <h2>WhatsApp QR Code</h2>
-  <a href="/dashboard" class="btn btn-secondary">
-    <i class="fas fa-arrow-left"></i> Back to Dashboard
+<div class="flex justify-between items-center my-6">
+  <h2 class="text-2xl font-bold">WhatsApp QR Code</h2>
+  <a href="/dashboard" class="inline-flex items-center bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded transition-colors">
+    <i class="fas fa-arrow-left mr-2"></i> Back to Dashboard
   </a>
 </div>
 
-<div class="card">
-  <div class="card-header">
-    Scan QR Code with WhatsApp
+<div class="bg-white rounded-lg shadow overflow-hidden">
+  <div class="bg-gray-100 px-4 py-3 border-b">
+    <h5 class="font-medium">Scan QR Code with WhatsApp</h5>
   </div>
-  <div class="card-body text-center">
+  <div class="p-6 text-center">
     <% if (connectionStatus === 'connected') { %>
-      <div class="alert alert-success">
-        <i class="fas fa-check-circle"></i> WhatsApp is already connected!
+      <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 rounded mb-4">
+        <i class="fas fa-check-circle mr-2"></i> WhatsApp is already connected!
       </div>
-      <p>You can disconnect and reconnect with a new QR code if needed.</p>
-      <a href="/disconnect" class="btn btn-danger">
-        <i class="fas fa-unlink"></i> Disconnect
-      </a>
+      <p class="mb-4">You can disconnect and reconnect with a new QR code if needed.</p>
+      <button id="logout_whatsapp" class="inline-flex items-center bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded transition-colors">
+        <i class="fas fa-unlink mr-2"></i> Disconnect
+      </button>
+    <% } else if (connectionStatus === 'timeout') { %>
+      <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded mb-4">
+        <i class="fas fa-exclamation-circle mr-2"></i> QR code has expired
+      </div>
+      <p class="mb-4">The QR code has expired because it was not scanned within 1 minute.</p>
+      <div class="flex space-x-3 justify-center">
+        <button id="generate-qr" class="inline-flex items-center bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded transition-colors">
+          <i class="fas fa-qrcode mr-2"></i> Generate New QR Code
+        </button>
+        <a href="/dashboard" class="inline-flex items-center bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded transition-colors">
+          <i class="fas fa-arrow-left mr-2"></i> Back to Dashboard
+        </a>
+      </div>
     <% } else if (qrCode) { %>
-      <div class="alert alert-warning">
-        <strong>Important:</strong> Scan this QR code with your WhatsApp app to connect.
+      <div class="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 rounded mb-4">
+        <strong class="font-bold">Important:</strong> Scan this QR code with your WhatsApp app to connect.
       </div>
       
-      <div class="qr-code">
-        <img src="<%= qrCode %>" alt="WhatsApp QR Code" class="img-fluid">
+      <div class="qr-code mx-auto max-w-xs">
+        <img src="<%= qrCode %>" alt="WhatsApp QR Code" class="w-full">
       </div>
       
-      <p class="mt-3">This QR code will expire after a few minutes. If it expires, click the button below to generate a new one.</p>
+      <div id="timeout-message" class="mt-4 mb-2 text-red-600" style="display: none;">
+        <i class="fas fa-exclamation-circle"></i> QR code will expire in <span id="timeout-countdown">60</span> seconds if not scanned.
+      </div>
       
-      <button id="refresh-qr" class="btn btn-primary mt-2">
-        <i class="fas fa-sync-alt"></i> Refresh QR Code
-      </button>
+      <p class="mt-2 mb-4">If the QR code expires, click the button below to generate a new one.</p>
+      
+      <div class="flex space-x-3 justify-center">
+        <button id="refresh-qr" class="inline-flex items-center bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded transition-colors">
+          <i class="fas fa-sync-alt mr-2"></i> Refresh QR Code
+        </button>
+        <a href="/dashboard" class="inline-flex items-center bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded transition-colors">
+          <i class="fas fa-arrow-left mr-2"></i> Back to Dashboard
+        </a>
+      </div>
     <% } else { %>
-      <p>Click the button below to generate a QR code for WhatsApp connection:</p>
-      <button id="generate-qr" class="btn btn-primary">
-        <i class="fas fa-qrcode"></i> Generate QR Code
-      </button>
-      <div id="loading" class="mt-3" style="display: none;">
-        <div class="spinner-border text-primary" role="status">
-          <span class="visually-hidden">Loading...</span>
+      <p class="mb-4">Click the button below to generate a QR code for WhatsApp connection:</p>
+      <div class="flex space-x-3 justify-center">
+        <button id="generate-qr" class="inline-flex items-center bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded transition-colors">
+          <i class="fas fa-qrcode mr-2"></i> Generate QR Code
+        </button>
+        <a href="/dashboard" class="inline-flex items-center bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded transition-colors">
+          <i class="fas fa-arrow-left mr-2"></i> Back to Dashboard
+        </a>
+      </div>
+      <div id="loading" class="mt-4" style="display: none;">
+        <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent" role="status">
+          <span class="sr-only">Loading...</span>
         </div>
-        <p>Generating QR code...</p>
+        <p class="mt-2">Generating QR code...</p>
       </div>
     <% } %>
   </div>
@@ -54,6 +81,24 @@ document.addEventListener('DOMContentLoaded', function() {
   const generateQrBtn = document.getElementById('generate-qr');
   const refreshQrBtn = document.getElementById('refresh-qr');
   const loading = document.getElementById('loading');
+  const timeoutMessage = document.getElementById('timeout-message');
+  const timeoutCountdown = document.getElementById('timeout-countdown');
+  const logoutButton = document.getElementById('logout_whatsapp');
+  
+  // Countdown timer for QR code expiration
+  if (timeoutMessage && timeoutCountdown) {
+    timeoutMessage.style.display = 'block';
+    let countdown = 60;
+    const timer = setInterval(() => {
+      countdown--;
+      timeoutCountdown.textContent = countdown;
+      
+      if (countdown <= 0) {
+        clearInterval(timer);
+        window.location.reload(); // Reload page when timer expires
+      }
+    }, 1000);
+  }
   
   function generateQrCode() {
     if (loading) loading.style.display = 'block';
@@ -93,6 +138,32 @@ document.addEventListener('DOMContentLoaded', function() {
     refreshQrBtn.addEventListener('click', generateQrCode);
   }
   
+  if (logoutButton) {
+    logoutButton.addEventListener('click', function() {
+      if (confirm('Are you sure you want to logout from WhatsApp? This will disconnect your current session.')) {
+        fetch('/whatsapp/logout', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        })
+        .then(response => response.json())
+        .then(data => {
+          if (data.success) {
+            alert('WhatsApp session logged out successfully.');
+            window.location.href = '/dashboard';
+          } else {
+            alert('Failed to logout WhatsApp session.');
+          }
+        })
+        .catch(error => {
+          console.error('Error:', error);
+          alert('An error occurred while logging out.');
+        });
+      }
+    });
+  }
+  
   // Check connection status periodically
   if (document.querySelector('.qr-code')) {
     const checkStatus = setInterval(() => {
@@ -101,6 +172,14 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(data => {
           if (data.connectionStatus === 'connected') {
             clearInterval(checkStatus);
+            window.location.href = '/dashboard';
+          } else if (data.connectionStatus === 'timeout') {
+            clearInterval(checkStatus);
+            // Redirect ke halaman yang sama untuk menampilkan status timeout
+            window.location.reload();
+          } else if (data.connectionStatus === 'disconnected' && !data.qrCodeExists) {
+            // Jika status disconnected dan QR code tidak ada lagi (sudah expired/timeout)
+            clearInterval(checkStatus);
             window.location.reload();
           }
         })
@@ -108,6 +187,14 @@ document.addEventListener('DOMContentLoaded', function() {
           console.error('Error checking status:', error);
         });
     }, 5000); // Check every 5 seconds
+    
+    // Tambahkan pengecekan timeout terpisah setelah countdown selesai
+    setTimeout(() => {
+      // Jika setelah 65 detik masih di halaman yang sama, reload untuk menampilkan status terbaru
+      if (document.querySelector('.qr-code')) {
+        window.location.reload();
+      }
+    }, 65000); // 65 detik (60 detik timeout + 5 detik buffer)
   }
 });
 </script>

@@ -115,6 +115,43 @@ async function sendImageMessage(imageUrl, caption = '') {
   }
 }
 
+// Function to extract domain from URL
+function extractDomainFromUrl(url) {
+  try {
+    if (!url) return null;
+    
+    // Add protocol if missing
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      url = 'http://' + url;
+    }
+    
+    const parsedUrl = new URL(url);
+    return parsedUrl.hostname;
+  } catch (error) {
+    return null;
+  }
+}
+
+// Function to format webhook messages
+function formatWebhookMessage(payload, sourceUrl = null, webhookName = null) {
+  // Start with a header based on webhook name if available
+  let formattedMessage = "";
+  
+  if (webhookName) {
+    formattedMessage = `📩 *Message from ${webhookName}*\n\n`;
+  } else {
+    formattedMessage = "📩 *Webhook notification*\n\n";
+  }
+  
+  // Add timestamp
+  formattedMessage += `🕒 *Time*: ${new Date().toLocaleString()}\n\n`;
+  
+  // Add payload content
+  formattedMessage += JSON.stringify(payload, null, 2);
+  
+  return formattedMessage;
+}
+
 // Webhook endpoint
 app.post(webhookPath, async (req, res) => {
   try {
@@ -122,6 +159,22 @@ app.post(webhookPath, async (req, res) => {
     
     // Extract message from webhook payload
     const payload = req.body;
+    
+    // Extract source URL from request headers (exclude our own domain)
+    let sourceUrl = req.get('origin') || req.get('referer');
+    
+    // Don't use Host header as it's our own server domain
+    // Also filter out if the source URL is our own domain
+    if (sourceUrl) {
+      const currentHost = req.get('host');
+      const sourceDomain = extractDomainFromUrl(sourceUrl);
+      
+      // Skip if source domain is the same as our server domain
+      if (sourceDomain === currentHost || sourceDomain === req.hostname) {
+        sourceUrl = null;
+      }
+    }
+    
     let sent = false;
     
     // Check if the payload contains a message type
@@ -138,11 +191,12 @@ app.post(webhookPath, async (req, res) => {
           // If there's a specific message field, use that
           messageToForward = payload.message;
         } else {
-          // Otherwise, stringify the whole payload
-          messageToForward = `Webhook notification:\n${JSON.stringify(payload, null, 2)}`;
+          // Use the formatting function with a generic name
+          messageToForward = formatWebhookMessage(payload, sourceUrl, "Webhook");
         }
       } else {
-        messageToForward = `Webhook notification: ${payload}`;
+        // For simple text payloads
+        messageToForward = `📩 *Message from Webhook*\n\n🕒 *Time*: ${new Date().toLocaleString()}\n\n${payload}`;
       }
       
       // Send the message

@@ -1,0 +1,176 @@
+<%- include('partials/header') %>
+
+<div class="container mx-auto px-4 py-6">
+  <h2 class="text-2xl font-bold mb-6">Admin Dashboard</h2>
+  
+  <% if (typeof message !== 'undefined' && message) { %>
+    <% 
+      let alertClass = "bg-blue-100 border-blue-500 text-blue-700";
+      if (message.type === 'success') {
+        alertClass = "bg-green-100 border-green-500 text-green-700";
+      } else if (message.type === 'danger') {
+        alertClass = "bg-red-100 border-red-500 text-red-700";
+      } else if (message.type === 'warning') {
+        alertClass = "bg-yellow-100 border-yellow-500 text-yellow-700";
+      }
+    %>
+    <div class="<%= alertClass %> px-4 py-3 rounded border-l-4 mb-6">
+      <%= message.text %>
+    </div>
+  <% } %>
+  
+  <!-- Statistics Cards -->
+  <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+    <div class="bg-white rounded-lg shadow border-t-4 border-blue-500">
+      <div class="p-4 text-center">
+        <i class="fas fa-users text-2xl text-blue-500 mb-2"></i>
+        <h4 class="text-2xl font-bold text-blue-500"><%= totalUsers %></h4>
+        <span class="text-gray-500 text-sm">Total Users</span>
+      </div>
+    </div>
+    
+    <div class="bg-white rounded-lg shadow border-t-4 border-green-500">
+      <div class="p-4 text-center">
+        <i class="fas fa-check-circle text-2xl text-green-500 mb-2"></i>
+        <h4 class="text-2xl font-bold text-green-500"><%= activeSubscriptions %></h4>
+        <span class="text-gray-500 text-sm">Active Subscriptions</span>
+      </div>
+    </div>
+    
+    <div class="bg-white rounded-lg shadow border-t-4 border-yellow-500">
+      <div class="p-4 text-center">
+        <i class="fas fa-clock text-2xl text-yellow-500 mb-2"></i>
+        <h4 class="text-2xl font-bold text-yellow-500"><%= trialUsers %></h4>
+        <span class="text-gray-500 text-sm">Trial Users</span>
+      </div>
+    </div>
+    
+    <div class="bg-white rounded-lg shadow border-t-4 border-red-500">
+      <div class="p-4 text-center">
+        <i class="fas fa-times-circle text-2xl text-red-500 mb-2"></i>
+        <h4 class="text-2xl font-bold text-red-500"><%= expiredUsers %></h4>
+        <span class="text-gray-500 text-sm">Expired Users</span>
+      </div>
+    </div>
+  </div>
+  
+  <!-- WhatsApp Status -->
+  <div class="mb-6">
+    <div class="bg-white rounded-lg shadow overflow-hidden">
+      <div class="bg-gray-100 px-4 py-3 border-b">
+        <h5 class="font-medium flex items-center"><i class="fas fa-whatsapp mr-2"></i> WhatsApp Connection Status</h5>
+      </div>
+      <div class="p-4">
+        <div class="flex flex-col md:flex-row md:justify-between md:items-center">
+          <div>
+            <p class="mb-2">
+              <span class="font-semibold">Status:</span> 
+              <span class="<%= connectionStatus === 'connected' ? 'bg-green-500' : connectionStatus === 'connecting' ? 'bg-yellow-500' : 'bg-red-500' %> text-white text-xs px-2 py-1 rounded">
+                <%= connectionStatus.toUpperCase() %>
+              </span>
+            </p>
+            <% if (lastConnected) { %>
+              <p class="mb-2">
+                <span class="font-semibold">Last Connected:</span> <%= new Date(lastConnected).toLocaleString() %>
+              </p>
+            <% } %>
+            <p class="mb-4 md:mb-0">
+              <span class="font-semibold">Message Queue:</span> <%= queueLength %> pending messages
+            </p>
+          </div>
+          <div class="text-right">
+            <% if (connectionStatus === 'connected') { %>
+              <a href="/disconnect" class="inline-flex items-center bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded transition-colors">
+                <i class="fas fa-unlink mr-2"></i> Disconnect WhatsApp
+              </a>
+            <% } else { %>
+              <a href="/qrcode" class="inline-flex items-center bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded transition-colors">
+                <i class="fas fa-qrcode mr-2"></i> Connect WhatsApp
+              </a>
+            <% } %>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Quick Actions -->
+  <div class="mb-6">
+    <div class="bg-white rounded-lg shadow overflow-hidden">
+      <div class="bg-gray-100 px-4 py-3 border-b">
+        <h5 class="font-medium flex items-center"><i class="fas fa-tools mr-2"></i> Quick Actions</h5>
+      </div>
+      <div class="p-4">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <a href="/admin/subscriptions" class="inline-flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded transition-colors">
+            <i class="fas fa-credit-card mr-2"></i> Manage Subscriptions
+          </a>
+          <a href="/qrcode" class="inline-flex items-center justify-center bg-cyan-600 hover:bg-cyan-700 text-white py-2 px-4 rounded transition-colors">
+            <i class="fas fa-qrcode mr-2"></i> WhatsApp QR Code
+          </a>
+          <button class="inline-flex items-center justify-center bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded transition-colors" onclick="refreshStatus()">
+            <i class="fas fa-sync-alt mr-2"></i> Refresh Status
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- System Information -->
+  <div>
+    <div class="bg-white rounded-lg shadow overflow-hidden">
+      <div class="bg-gray-100 px-4 py-3 border-b">
+        <h5 class="font-medium flex items-center"><i class="fas fa-info-circle mr-2"></i> System Information</h5>
+      </div>
+      <div class="p-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <h6 class="font-medium mb-3">Service Status</h6>
+            <ul class="space-y-2">
+              <li class="flex items-center"><i class="fas fa-circle text-green-500 mr-2"></i> Web Server: Running</li>
+              <li class="flex items-center"><i class="fas fa-circle text-<%= connectionStatus === 'connected' ? 'green' : 'red' %>-500 mr-2"></i> WhatsApp: <%= connectionStatus %></li>
+              <li class="flex items-center"><i class="fas fa-circle text-green-500 mr-2"></i> Database: Connected</li>
+              <li class="flex items-center"><i class="fas fa-circle text-green-500 mr-2"></i> Queue System: Active</li>
+            </ul>
+          </div>
+          <div>
+            <h6 class="font-medium mb-3">Administrative Notes</h6>
+            <div class="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-4 mb-3 rounded">
+              <div class="text-sm">
+                <i class="fas fa-lightbulb mr-1"></i> 
+                <span class="font-semibold">Admin Role:</span> Focus on managing subscriptions and WhatsApp connection. 
+                Users handle their own webhooks and recipients.
+              </div>
+            </div>
+            <div class="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 rounded">
+              <div class="text-sm">
+                <i class="fas fa-exclamation-triangle mr-1"></i> 
+                Monitor trial users approaching expiration and expired subscriptions.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function refreshStatus() {
+  fetch('/api/status')
+    .then(response => response.json())
+    .then(data => {
+      if (data.success) {
+        location.reload();
+      } else {
+        alert('Error refreshing status');
+      }
+    })
+    .catch(error => {
+      console.error('Error:', error);
+      alert('Error refreshing status');
+    });
+}
+</script>
+
+<%- include('partials/footer') %> 

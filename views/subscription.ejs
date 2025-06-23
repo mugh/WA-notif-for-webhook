@@ -1,0 +1,201 @@
+<%- include('partials/header') %>
+
+<div class="container mx-auto px-4 py-6">
+  <h2 class="text-2xl font-bold mb-6">My Subscription</h2>
+  
+  <% if (typeof message !== 'undefined' && message) { %>
+    <div class="<%= message.type === 'success' ? 'bg-green-100 border-l-4 border-green-500 text-green-700' : message.type === 'danger' ? 'bg-red-100 border-l-4 border-red-500 text-red-700' : message.type === 'warning' ? 'bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700' : 'bg-blue-100 border-l-4 border-blue-500 text-blue-700' %> p-4 mb-6 rounded">
+      <%= message.text %>
+    </div>
+  <% } %>
+  
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <div class="md:col-span-2">
+      <% if (subscription && subscription.subscription_status === 'trial') { %>
+        <!-- Trial Status -->
+        <div class="bg-white rounded-lg shadow overflow-hidden border-t-4 border-yellow-500">
+          <div class="bg-yellow-100 px-4 py-3 border-b">
+            <h5 class="font-medium flex items-center"><i class="fas fa-clock mr-2"></i> Free Trial Active</h5>
+          </div>
+          <div class="p-4">
+            <% if (trialInfo && !trialInfo.isExpired) { %>
+              <p class="mb-4">
+                <span class="font-semibold">Trial ends on:</span> <%= new Date(trialInfo.trialEndDate).toLocaleDateString() %><br>
+                <span class="font-semibold">Days remaining:</span> 
+                <span class="px-2 py-1 text-xs font-medium rounded-full bg-yellow-100 text-yellow-800 ml-1">
+                  <%= trialInfo.daysLeft %> days
+                </span>
+              </p>
+              <% if (trialInfo.daysLeft <= 3) { %>
+                <div class="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 rounded">
+                  <i class="fas fa-exclamation-triangle mr-2"></i> Your trial is ending soon! Subscribe now to continue using webhooks.
+                </div>
+              <% } %>
+            <% } else { %>
+              <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded">
+                <i class="fas fa-times-circle mr-2"></i> Your trial has expired. Please subscribe to continue using webhooks.
+              </div>
+            <% } %>
+          </div>
+        </div>
+      <% } else if (subscription && subscription.subscription_status === 'active') { %>
+        <!-- Active Subscription -->
+        <div class="bg-white rounded-lg shadow overflow-hidden border-t-4 border-green-500">
+          <div class="bg-green-100 px-4 py-3 border-b">
+            <h5 class="font-medium flex items-center"><i class="fas fa-check-circle mr-2"></i> Active Subscription</h5>
+          </div>
+          <div class="p-4">
+            <p class="mb-4">
+              <span class="font-semibold">Status:</span> 
+              <span class="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800 ml-1">Active</span><br>
+              <% if (subscription.subscription_end_date) { %>
+                <span class="font-semibold">Expires on:</span> <%= new Date(subscription.subscription_end_date).toLocaleDateString() %>
+              <% } %>
+            </p>
+            <p class="text-green-600">
+              <i class="fas fa-info-circle mr-2"></i> Your subscription is active. Enjoy unlimited webhook usage!
+            </p>
+          </div>
+        </div>
+      <% } else { %>
+        <!-- Expired or No Subscription -->
+        <div class="bg-white rounded-lg shadow overflow-hidden border-t-4 border-red-500">
+          <div class="bg-red-100 px-4 py-3 border-b">
+            <h5 class="font-medium flex items-center"><i class="fas fa-times-circle mr-2"></i> Subscription Expired</h5>
+          </div>
+          <div class="p-4">
+            <p>Your subscription has expired. Please renew to continue using webhooks.</p>
+          </div>
+        </div>
+      <% } %>
+    </div>
+    
+    <div class="md:col-span-1">
+      <div class="bg-white rounded-lg shadow overflow-hidden">
+        <div class="bg-gray-100 px-4 py-3 border-b">
+          <h5 class="font-medium">Subscription Plans</h5>
+        </div>
+        <div class="p-4">
+          <% if (!subscription || subscription.subscription_status !== 'active') { %>
+            <form action="/subscription/activate" method="POST">
+              <div class="mb-4">
+                <label for="months" class="block text-sm font-medium text-gray-700 mb-1">Select Plan:</label>
+                <select class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" id="months" name="months" required>
+                  <option value="">-- Choose Plan --</option>
+                  <% if (plans && plans.length > 0) { %>
+                    <% plans.forEach(plan => { %>
+                      <option value="<%= plan.duration_months %>" data-price="<%= plan.price %>" data-currency="<%= plan.currency %>">
+                        <%= plan.name %> - <%= plan.currency %> <%= plan.price %>
+                        <% if (plan.description && plan.description.includes('Save')) { %>
+                          (<%= plan.description.match(/Save \d+%/)[0] %>)
+                        <% } %>
+                      </option>
+                    <% }); %>
+                  <% } else { %>
+                    <option value="1">1 Month - $9.99</option>
+                    <option value="3">3 Months - $24.99 (Save 17%)</option>
+                    <option value="6">6 Months - $44.99 (Save 25%)</option>
+                    <option value="12">12 Months - $79.99 (Save 33%)</option>
+                  <% } %>
+                </select>
+              </div>
+              
+              <div id="planDescription" class="mb-4 hidden">
+                <p class="text-sm text-gray-500" id="descriptionText"></p>
+              </div>
+              
+              <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded transition-colors flex items-center justify-center">
+                <i class="fas fa-credit-card mr-2"></i> Subscribe Now
+              </button>
+            </form>
+            
+            <div class="mt-4">
+              <p class="text-sm text-gray-500">
+                <i class="fas fa-info-circle mr-1"></i> Features included:
+              </p>
+              <ul class="mt-2 text-sm text-gray-500 list-disc pl-5">
+                <li>Unlimited webhooks</li>
+                <li>2 recipients per webhook</li>
+                <li>24/7 support</li>
+                <li>99.9% uptime guarantee</li>
+              </ul>
+            </div>
+          <% } else { %>
+            <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 rounded mb-4">
+              <i class="fas fa-check mr-2"></i> You have an active subscription!
+            </div>
+            
+            <p class="text-sm text-gray-500">
+              Need to change your plan? Contact support for assistance.
+            </p>
+          <% } %>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="mt-6">
+    <div class="bg-white rounded-lg shadow overflow-hidden">
+      <div class="bg-gray-100 px-4 py-3 border-b">
+        <h5 class="font-medium">Usage Statistics</h5>
+      </div>
+      <div class="p-4">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div class="text-center p-3">
+            <h4 class="text-2xl font-bold text-blue-600"><%= webhooksCount || 0 %></h4>
+            <p class="text-sm text-gray-500">Active Webhooks</p>
+          </div>
+          <div class="text-center p-3">
+            <h4 class="text-2xl font-bold text-cyan-600"><%= recipientsCount || 0 %></h4>
+            <p class="text-sm text-gray-500">Total Recipients</p>
+          </div>
+          <div class="text-center p-3">
+            <h4 class="text-2xl font-bold text-green-600">∞</h4>
+            <p class="text-sm text-gray-500">Monthly Limit</p>
+          </div>
+          <div class="text-center p-3">
+            <h4 class="text-2xl font-bold text-yellow-600">24/7</h4>
+            <p class="text-sm text-gray-500">Support</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  <% if (plans && plans.length > 0) { %>
+  // Plan data from database
+  const planData = {
+    <% plans.forEach((plan, index) => { %>
+      '<%= plan.duration_months %>': {
+        name: '<%= plan.name %>',
+        price: '<%= plan.price %>',
+        currency: '<%= plan.currency %>',
+        description: '<%= plan.description %>'
+      }<%= index < plans.length - 1 ? ',' : '' %>
+    <% }); %>
+  };
+
+  const monthsSelect = document.getElementById('months');
+  if (monthsSelect) {
+    monthsSelect.addEventListener('change', function() {
+      const selectedValue = this.value;
+      const descriptionDiv = document.getElementById('planDescription');
+      const descriptionText = document.getElementById('descriptionText');
+      
+      if (selectedValue && planData[selectedValue]) {
+        const plan = planData[selectedValue];
+        descriptionText.textContent = plan.description;
+        descriptionDiv.classList.remove('hidden');
+      } else {
+        descriptionDiv.classList.add('hidden');
+      }
+    });
+  }
+  <% } %>
+});
+</script>
+
+<%- include('partials/footer') %> 

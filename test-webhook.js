@@ -67,24 +67,48 @@ const testPayloads = {
     type: 'image',
     imageUrl: 'https://picsum.photos/200/300', // Random image from Lorem Picsum
     caption: 'This is an image sent via webhook'
+  },
+  payment: {
+    customer_name: 'John Doe',
+    amount: 150000,
+    status: 'success',
+    payment_method: 'QRIS',
+    payment: {
+      id: 'pay_' + Math.floor(100000 + Math.random() * 900000),
+      details: 'Payment completed'
+    },
+    transaction_id: 'TRX-' + Math.floor(100000 + Math.random() * 900000)
   }
 };
 
 // Function to send webhook
-function sendWebhook(payload) {
+function sendWebhook(payload, sourceUrl = null, webhookId = null) {
+  const headers = {
+    'Content-Type': 'application/json',
+    'Content-Length': Buffer.byteLength(JSON.stringify(payload))
+  };
+  
+  // Add source URL header if provided
+  if (sourceUrl) {
+    headers['Origin'] = sourceUrl;
+  }
+  
+  // Determine the path (default or webhook-specific)
+  let path = webhookPath;
+  if (webhookId) {
+    path = `/api/webhook/${webhookId}`;
+  }
+  
   // Options for the HTTP request
   const options = {
     hostname: host,
     port: port,
-    path: webhookPath,
+    path: path,
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Content-Length': Buffer.byteLength(JSON.stringify(payload))
-    }
+    headers: headers
   };
 
-  console.log(`Sending test webhook to http://${host}:${port}${webhookPath}`);
+  console.log(`Sending test webhook to http://${host}:${port}${path}`);
   console.log('Payload:', JSON.stringify(payload, null, 2));
 
   // Create and send the request
@@ -125,10 +149,14 @@ console.log('3. Order confirmation');
 console.log('4. System alert');
 console.log('5. Image with caption');
 console.log('6. Custom payload');
+console.log('7. Test with source URL (example.com)');
+console.log('8. Test with source URL (myapp.com)');
+console.log('9. Payment notification (for custom template testing)');
 
 // Get user choice
-rl.question('Enter your choice (1-6): ', (choice) => {
+rl.question('Enter your choice (1-9): ', (choice) => {
   let payload;
+  let sourceUrl = null;
   
   switch (choice) {
     case '1':
@@ -151,20 +179,45 @@ rl.question('Enter your choice (1-6): ', (choice) => {
       rl.question('Enter your custom JSON payload: ', (customPayload) => {
         try {
           payload = JSON.parse(customPayload);
-          sendWebhook(payload);
+          askForWebhookId(payload, sourceUrl);
         } catch (error) {
           console.error('Invalid JSON payload:', error.message);
           process.exit(1);
         }
-        rl.close();
       });
       return;
+    case '7':
+      payload = testPayloads.json;
+      sourceUrl = 'https://example.com';
+      break;
+    case '8':
+      payload = testPayloads.order;
+      sourceUrl = 'https://myapp.com';
+      break;
+    case '9':
+      payload = testPayloads.payment;
+      sourceUrl = 'https://payment-gateway.com';
+      break;
     default:
-      console.log('Invalid choice. Please enter a number between 1 and 6.');
+      console.log('Invalid choice. Please enter a number between 1 and 9.');
       rl.close();
       process.exit(1);
   }
   
-  sendWebhook(payload);
-  rl.close();
-}); 
+  console.log(sourceUrl ? `Testing with source URL: ${sourceUrl}` : 'Testing without source URL');
+  askForWebhookId(payload, sourceUrl);
+});
+
+// Function to ask for webhook ID
+function askForWebhookId(payload, sourceUrl) {
+  rl.question('Enter webhook ID (leave empty for default webhook): ', (webhookId) => {
+    if (webhookId && webhookId.trim() !== '') {
+      console.log(`Using webhook ID: ${webhookId}`);
+      sendWebhook(payload, sourceUrl, webhookId.trim());
+    } else {
+      console.log('Using default webhook endpoint');
+      sendWebhook(payload, sourceUrl);
+    }
+    rl.close();
+  });
+} 

@@ -1,0 +1,878 @@
+<%- include('partials/header') %>
+
+<div class="container mx-auto px-4 py-6">
+  <h2 class="text-2xl font-bold mb-6"><%= isNew ? 'Create New Webhook' : 'Edit Webhook' %></h2>
+  
+  <% if (typeof error !== 'undefined' && error) { %>
+    <script id="flash-message-data" type="application/json">
+      {"type": "danger", "text": "<%= error %>"}
+    </script>
+  <% } %>
+  
+  <form id="webhookForm" action="<%= isNew ? '/webhooks' : '/webhooks/' + webhook.id %>" method="POST">
+    <div class="mb-6">
+      <label for="name" class="block text-sm font-medium text-gray-700 mb-1">Webhook Name</label>
+      <input type="text" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" id="name" name="name" value="<%= webhook.name || '' %>" required>
+      <p class="mt-1 text-sm text-gray-500">Give your webhook a descriptive name to help you identify it.</p>
+    </div>
+    
+    <div class="mb-6">
+      <label for="format_type" class="block text-sm font-medium text-gray-700 mb-1">Message Format</label>
+      <select id="format_type" name="format_type" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+        <option value="raw" <%= (webhook.format_type === 'raw') ? 'selected' : '' %>>Raw (JSON)</option>
+        <option value="formatted" <%= (webhook.format_type === 'formatted') ? 'selected' : '' %>>Pretty (System Default)</option>
+        <option value="custom" <%= (webhook.format_type === 'custom') ? 'selected' : '' %>>Pretty (Custom Template)</option>
+      </select>
+      <p class="mt-1 text-sm text-gray-500">Choose how webhook messages will be formatted when sent to WhatsApp.</p>
+      
+      <!-- Custom Template Section -->
+      <div id="custom-template-section" class="mt-4 p-4 border border-gray-300 rounded-md <%= (webhook.format_type === 'custom') ? '' : 'hidden' %>">
+        <label for="custom_template" class="block text-sm font-medium text-gray-700 mb-2">Custom Template</label>
+        
+        <% if (!isNew) { %>
+        <!-- Step 1: Send a Test Webhook -->
+        <div class="mb-6 p-3 bg-blue-50 border border-blue-200 rounded-md">
+          <div class="flex items-start">
+            <div class="bg-blue-600 text-white rounded-full w-6 h-6 flex items-center justify-center font-bold mr-3 flex-shrink-0">1</div>
+            <div>
+              <h4 class="text-sm font-medium text-blue-700 mb-2">Send a Test Webhook</h4>
+              <p class="text-xs text-blue-600 mb-2">Send a webhook to the following URL to see available variables:</p>
+              
+              <div class="flex">
+                <input type="text" class="flex-grow px-3 py-2 border border-gray-300 rounded-l-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xs" value="<%= baseUrl %>/api/webhook/<%= webhook.webhook_id %>" readonly>
+                <button class="copy-btn bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-r-md border-t border-r border-b border-gray-300 transition-colors" type="button" data-clipboard-text="<%= baseUrl %>/api/webhook/<%= webhook.webhook_id %>">
+                  Copy
+                </button>
+              </div>              
+              <p class="text-xs text-blue-600 mt-2"><strong>Privacy Note:</strong> </p>
+              <p class="text-xs text-blue-600 mt-2"> Setup recipient first to see the value of variables. System only stores variable structure (names and types), not actual values from your webhook data.</p>
+            </div>
+          </div>
+        </div>
+        <% } %>
+        
+        <!-- Step 2: Get Variables -->
+        <div class="mb-6 p-3 bg-blue-50 border border-blue-200 rounded-md">
+          <div class="flex items-start">
+            <div class="bg-blue-600 text-white rounded-full w-6 h-6 flex items-center justify-center font-bold mr-3 flex-shrink-0">2</div>
+            <div class="w-full">
+              <h4 class="text-sm font-medium text-blue-700 mb-2">Get Variables from Last Webhook</h4>
+              <button type="button" id="test-webhook-btn" class="bg-blue-500 hover:bg-blue-600 text-white py-1 px-3 rounded text-sm">
+                Get Variables
+              </button>
+              <span id="webhook-test-status" class="ml-2 text-sm text-gray-500">Send a webhook first to see available variables</span>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Step 3: Create Your Template -->
+        <div class="mb-6 p-3 bg-blue-50 border border-blue-200 rounded-md">
+          <div class="flex items-start">
+            <div class="bg-blue-600 text-white rounded-full w-6 h-6 flex items-center justify-center font-bold mr-3 flex-shrink-0">3</div>
+            <div class="w-full">
+              <h4 class="text-sm font-medium text-blue-700 mb-2">Create Your Template</h4>
+              
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                <!-- Variables Panel -->
+                <div class="border border-gray-300 rounded-md p-3 bg-gray-50">
+                  <h3 class="text-sm font-medium text-gray-700 mb-2">Available Variables</h3>
+                  <div id="variables-container" class="min-h-[100px] max-h-[200px] overflow-y-auto">
+                    <div class="text-sm text-gray-500 italic">No variables detected yet. Send a webhook first, then click "Get Variables".</div>
+                  </div>
+                  <p class="text-xs text-gray-500 mt-2">Only variable structure is displayed, not actual values.</p>
+                </div>
+                
+                <!-- Template Editor -->
+                <div class="md:col-span-2">
+                  <!-- WhatsApp Formatting Buttons -->
+                  <div class="mb-3 p-2 bg-gray-50 border border-gray-200 rounded-md">
+                    <div class="text-sm font-medium text-gray-700 mb-2">WhatsApp Formatting</div>
+                    <div class="flex flex-wrap gap-1">
+                      <button type="button" class="format-btn px-2 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-100 transition-colors" data-format="bold" title="Bold">
+                        <strong>B</strong>
+                      </button>
+                      <button type="button" class="format-btn px-2 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-100 transition-colors" data-format="italic" title="Italic">
+                        <em>I</em>
+                      </button>
+                      <button type="button" class="format-btn px-2 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-100 transition-colors" data-format="strikethrough" title="Strikethrough">
+                        <s>S</s>
+                      </button>
+                      <button type="button" class="format-btn px-2 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-100 transition-colors" data-format="monospace" title="Monospace">
+                        <code>M</code>
+                      </button>
+                      <button type="button" class="format-btn px-2 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-100 transition-colors" data-format="inline-code" title="Inline Code">
+                        `code`
+                      </button>
+                      <button type="button" class="format-btn px-2 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-100 transition-colors" data-format="bullet-list" title="Bulleted List">
+                        • List
+                      </button>
+                      <button type="button" class="format-btn px-2 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-100 transition-colors" data-format="numbered-list" title="Numbered List">
+                        1. List
+                      </button>
+                      <button type="button" class="format-btn px-2 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-100 transition-colors" data-format="quote" title="Quote">
+                        > Quote
+                      </button>
+                      <button type="button" id="emoji-picker-btn" class="px-2 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-100 transition-colors" title="Insert Emoji">
+                        😀 Emoji
+                      </button>
+                    </div>
+                    <p class="mt-1 text-xs text-gray-500">Select text in the template and click a formatting button to apply WhatsApp formatting.</p>
+                  </div>
+                  
+                  <textarea id="custom_template" name="custom_template" rows="6" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"><%= webhook.custom_template || '📩 *Payment from {{{customer_name}}}*\n\n🕒 *Time*: {{{timestamp}}}\n\n*Amount*: ${{{amount}}}\n*Status*: {{{status}}}\n*Method*: {{{payment_method}}}' %></textarea>
+                  <p class="mt-1 text-xs text-gray-500">Drag variables from the left panel and drop them into your template.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Step 4: Check WhatsApp Preview -->        
+        <div class="mb-6 p-3 bg-blue-50 border border-blue-200 rounded-md">
+          <div class="flex items-start">
+            <div class="bg-blue-600 text-white rounded-full w-6 h-6 flex items-center justify-center font-bold mr-3 flex-shrink-0">4</div>
+            <div>
+              <h4 class="text-sm font-medium text-gray-700 mb-2">Check WhatsApp Preview</h4>
+              <h4 class="text-sm font-medium text-gray-500 mb-2">Check below checkbox to use this template.</h4>
+              <div class="mb-6 p-3 bg-yellow-50 border border-yellow-200 rounded-md publish-highlight">
+                <div class="flex items-center">
+                  <input type="checkbox" id="is_published" name="is_published" class="h-6 w-6 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" <%= webhook.is_published ? 'checked' : '' %>>
+                  <label for="is_published" class="ml-2 block text-lg font-medium text-gray-700">
+                    Publish Template
+                  </label>
+                </div>
+                <p class="mt-1 text-sm text-yellow-600">
+                  <strong>Important:</strong> If unchecked, webhooks will be sent as raw JSON. Check this when your template is ready to use.
+                </p>
+              </div>  
+              <p class="text-sm font-medium text-gray-500 mb-2">Update your webhook.</p>
+              <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 mb-2 rounded transition-colors" data-stay-on-page="true"><%= isNew ? 'Create Webhook' : 'Update Webhook' %></button>
+              <p class="text-sm font-medium text-gray-500 mb-2">Send a test webhook to see the preview. Refine your template until you're satisfied.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div id="format-examples" class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-4 <%= (webhook.format_type === 'custom') ? 'hidden' : '' %>">
+        <div class="border border-gray-300 rounded-md p-3">
+          <div class="text-sm font-medium text-gray-700 mb-2">Raw (JSON)</div>
+          <div class="bg-gray-100 p-2 rounded text-sm font-mono">
+            {<br>
+            &nbsp;&nbsp;"status": "success",<br>
+            &nbsp;&nbsp;"source": "API Server",<br>
+            &nbsp;&nbsp;"data": {<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;"key1": "value1",<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;"key2": "value2"<br>
+            &nbsp;&nbsp;}<br>
+            }
+          </div>
+        </div>
+        <div class="border border-gray-300 rounded-md p-3">
+          <div class="text-sm font-medium text-gray-700 mb-2">Pretty (System Default)</div>
+          <div class="bg-gray-100 p-2 rounded text-sm font-mono">
+            📩 <strong>New Notification</strong><br>
+            🕒 <strong>Time</strong>: 2023-08-15 12:34:56<br>
+            <strong>Status</strong>: success<br>
+            <strong>Source</strong>: API Server<br>
+            <strong>Data</strong>:<br>
+            &nbsp;&nbsp;<strong>Key1</strong>: value1<br>
+            &nbsp;&nbsp;<strong>Key2</strong>: value2
+          </div>
+        </div>
+      </div>
+    </div>
+  
+  <% if (!isNew) { %>
+    <hr class="my-8 border-t border-gray-200">
+    
+    <h3 class="text-xl font-bold mb-2">Webhook Recipients</h3>
+    <p class="text-gray-600 mb-4">You can add up to 2 recipients for this webhook.</p>
+    
+    <% if (recipients && recipients.length > 0) { %>
+      <div class="overflow-x-auto">
+        <table class="min-w-full bg-white border border-gray-200 mb-4">
+          <thead>
+            <tr class="bg-gray-100">
+              <th class="py-2 px-4 border-b text-left">Name</th>
+              <th class="py-2 px-4 border-b text-left">Phone Number</th>
+              <th class="py-2 px-4 border-b text-left">Status</th>
+              <th class="py-2 px-4 border-b text-left">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% recipients.forEach(recipient => { %>
+              <tr class="hover:bg-gray-50">
+                <td class="py-2 px-4 border-b"><%= recipient.name %></td>
+                <td class="py-2 px-4 border-b"><%= recipient.phone_number %></td>
+                <td class="py-2 px-4 border-b">
+                  <span class="px-2 py-1 text-xs font-medium rounded-full <%= recipient.active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800' %>">
+                    <%= recipient.active ? 'Active' : 'Inactive' %>
+                  </span>
+                </td>
+                <td class="py-2 px-4 border-b">
+                  <div class="flex space-x-2">
+                    <a href="/webhooks/<%= webhook.id %>/recipients/<%= recipient.id %>/edit" class="bg-blue-600 hover:bg-blue-700 text-white text-xs py-1 px-2 rounded transition-colors">Edit</a>
+                    <button class="bg-red-600 hover:bg-red-700 text-white text-xs py-1 px-2 rounded transition-colors delete-recipient" data-id="<%= recipient.id %>" data-name="<%= recipient.name %>">Delete</button>
+                    <button class="bg-green-600 hover:bg-green-700 text-white text-xs py-1 px-2 rounded transition-colors test-message" data-phone="<%= recipient.phone_number %>" data-name="<%= recipient.name %>">Test</button>
+                  </div>
+                </td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+      
+      <% if (recipients.length < 2) { %>
+        <a href="/webhooks/<%= webhook.id %>/recipients/new" class="inline-block bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded transition-colors">Add Recipient</a>
+      <% } %>
+    <% } else { %>
+      <div class="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-4 mb-4 rounded">
+        No recipients added yet. Add a recipient to start receiving notifications.
+      </div>
+      <a href="/webhooks/<%= webhook.id %>/recipients/new" class="inline-block bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded transition-colors">Add Recipient</a>
+    <% } %>
+  <% } %>
+    
+    <div class="flex items-center mt-6">
+      <button type="submit" id="bottom-submit-btn" class="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded transition-colors"><%= isNew ? 'Create Webhook' : 'Update Webhook' %></button>
+      <a href="/webhooks" class="bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded ml-3 transition-colors">Cancel</a>
+    </div>
+  </form>
+</div>
+
+<!-- Modal will be created dynamically by main.js -->
+
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    // Initialize emoji picker functionality
+    initEmojiPicker();
+    
+    // Handle form submission with AJAX for both new and edit webhook
+    const webhookForm = document.getElementById('webhookForm');
+    const bottomSubmitBtn = document.getElementById('bottom-submit-btn');
+    let submitSource = null;
+    
+    // Track which button was clicked
+    if (bottomSubmitBtn) {
+      bottomSubmitBtn.addEventListener('click', function() {
+        submitSource = 'bottom';
+      });
+    }
+    
+    if (webhookForm) {
+      webhookForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        // Show loading state
+        const submitButton = webhookForm.querySelector('button[type="submit"]');
+        const originalButtonText = submitButton.innerHTML;
+        submitButton.innerHTML = '<%= isNew ? "Creating..." : "Updating..." %>';
+        submitButton.disabled = true;
+        
+        // Get form data
+        const formData = new FormData(webhookForm);
+        
+        // Send AJAX request
+        fetch(webhookForm.action, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'application/json'
+          },
+          body: new URLSearchParams(formData).toString()
+        })
+        .then(response => {
+          // Check if response is JSON
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            return response.json().then(data => ({ data, isJson: true }));
+          } else {
+            return response.text().then(text => ({ data: text, isJson: false }));
+          }
+        })
+        .then(result => {
+          // Reset button state
+          submitButton.innerHTML = originalButtonText;
+          submitButton.disabled = false;
+          
+          if (result.isJson) {
+            // Handle JSON response
+            const data = result.data;
+            
+            // Show toast notification
+            if (data.toast) {
+              showToast(data.toast.text, data.toast.type);
+              
+              // Determine if we should redirect based on which button was clicked
+              // Bottom button always redirects, top button with data-stay-on-page never redirects
+              const shouldRedirect = submitSource === 'bottom' || !submitButton.hasAttribute('data-stay-on-page');
+              
+              // If successful and should redirect, redirect after a short delay
+              if (data.success && shouldRedirect) {
+                setTimeout(() => {
+                  const isNewForm = webhookForm.action.endsWith('/webhooks');
+                  if (isNewForm && data.webhookId) {
+                    window.location.href = `/webhooks/${data.webhookId}`;
+                  } else {
+                    window.location.href = '/webhooks';
+                  }
+                }, 1500);
+              } else if (data.success) {
+                // Reset submit source if we're staying on the page
+                submitSource = null;
+              }
+            } else if (data.success) {
+              // Fallback if no toast data
+              const isNewForm = webhookForm.action.endsWith('/webhooks');
+              const message = isNewForm ? 'Webhook created successfully' : 'Webhook updated successfully';
+              showToast(message, 'success');
+              
+              setTimeout(() => {
+                if (isNewForm && data.webhookId) {
+                  window.location.href = `/webhooks/${data.webhookId}`;
+                } else {
+                  window.location.href = '/webhooks';
+                }
+              }, 1500);
+            }
+          } else {
+            // Server returned HTML or redirect
+            // This means the form was submitted successfully but not as AJAX
+            // We'll just redirect to the webhooks page
+            window.location.href = '/webhooks';
+          }
+        })
+        .catch(error => {
+          console.error('Error:', error);
+          submitButton.innerHTML = originalButtonText;
+          submitButton.disabled = false;
+          // Reset submit source on error
+          submitSource = null;
+          showToast('An error occurred while saving the webhook', 'danger');
+        });
+      });
+    }
+    
+    // Test webhook button functionality
+    const testWebhookBtn = document.getElementById('test-webhook-btn');
+    const webhookTestStatus = document.getElementById('webhook-test-status');
+    const variablesContainer = document.getElementById('variables-container');
+    
+    if (testWebhookBtn && variablesContainer) {
+      testWebhookBtn.addEventListener('click', function() {
+        // Prevent multiple clicks
+        if (testWebhookBtn.disabled) return;
+        
+        // Disable the button during fetch
+        const originalBtnText = testWebhookBtn.textContent;
+        testWebhookBtn.disabled = true;
+        testWebhookBtn.textContent = 'Loading...';
+        testWebhookBtn.classList.add('opacity-75');
+        
+        webhookTestStatus.textContent = 'Fetching variables...';
+        webhookTestStatus.className = 'ml-2 text-sm text-gray-500';
+        
+        // Get webhook ID from URL
+        const urlParts = window.location.pathname.split('/');
+        const webhookId = urlParts[urlParts.length - 1] === 'edit' ? urlParts[urlParts.length - 2] : urlParts[urlParts.length - 1];
+        
+        // Add a delay to ensure the API has time to process
+        setTimeout(() => {
+          fetch(`/api/webhook/${webhookId}/test`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            }
+          })
+            .then(response => {
+              if (!response.ok) {
+                throw new Error(`HTTP error! Status: ${response.status}`);
+              }
+              return response.json();
+            })
+            .then(data => {
+              if (data.success && data.variableStructure) {
+                // Create draggable variables from the structure
+                createDraggableVariables(data.variableStructure);
+                
+                webhookTestStatus.textContent = `Variables loaded successfully! Last webhook received at ${new Date(data.receivedAt).toLocaleString()}`;
+                webhookTestStatus.className = 'ml-2 text-sm text-green-600';
+              } else {
+                variablesContainer.innerHTML = '<div class="text-sm text-gray-500 italic">No variables found. Make sure you have sent a webhook first.</div>';
+                webhookTestStatus.textContent = data.message || 'No variables found';
+                webhookTestStatus.className = 'ml-2 text-sm text-yellow-600';
+              }
+            })
+            .catch(error => {
+              console.error('Error:', error);
+              variablesContainer.innerHTML = '<div class="text-sm text-red-500 italic">An error occurred while fetching variables.</div>';
+              webhookTestStatus.textContent = 'Error occurred';
+              webhookTestStatus.className = 'ml-2 text-sm text-red-600';
+            })
+            .finally(() => {
+              // Re-enable the button
+              testWebhookBtn.disabled = false;
+              testWebhookBtn.textContent = originalBtnText;
+              testWebhookBtn.classList.remove('opacity-75');
+            });
+        }, 500); // Add a 500ms delay before making the request
+      });
+    }
+    
+    // Copy to clipboard functionality
+    const copyButtons = document.querySelectorAll('.copy-btn');
+    copyButtons.forEach(button => {
+      button.addEventListener('click', function() {
+        const text = this.getAttribute('data-clipboard-text');
+        navigator.clipboard.writeText(text).then(() => {
+          const originalText = this.textContent;
+          this.textContent = 'Copied!';
+          
+          // Show toast notification
+          showToast('URL copied to clipboard!', 'success');
+          
+          setTimeout(() => {
+            this.textContent = originalText;
+          }, 2000);
+        });
+      });
+    });
+    
+    // Toggle custom template section based on format type
+    const formatTypeSelect = document.getElementById('format_type');
+    const customTemplateSection = document.getElementById('custom-template-section');
+    const formatExamples = document.getElementById('format-examples');
+    const customTemplateExample = document.getElementById('custom-template-example');
+    
+    if (formatTypeSelect && customTemplateSection) {
+      formatTypeSelect.addEventListener('change', function() {
+        if (this.value === 'custom') {
+          customTemplateSection.classList.remove('hidden');
+          if (formatExamples) {
+            formatExamples.classList.add('hidden');
+          }
+          if (customTemplateExample) {
+            customTemplateExample.classList.remove('hidden');
+          }
+        } else {
+          customTemplateSection.classList.add('hidden');
+          if (formatExamples) {
+            formatExamples.classList.remove('hidden');
+          }
+          if (customTemplateExample) {
+            customTemplateExample.classList.add('hidden');
+          }
+        }
+      });
+    }
+    
+    // WhatsApp formatting functionality
+    const formatButtons = document.querySelectorAll('.format-btn');
+    const templateTextarea = document.getElementById('custom_template');
+    
+    formatButtons.forEach(button => {
+      button.addEventListener('click', function() {
+        const format = this.getAttribute('data-format');
+        applyFormatting(format, templateTextarea);
+      });
+    });
+    
+    function applyFormatting(format, textarea) {
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const selectedText = textarea.value.substring(start, end);
+      
+      if (selectedText.length === 0) {
+        return;
+      }
+      
+      let formattedText = '';
+      
+      switch (format) {
+        case 'bold':
+          formattedText = '*' + selectedText + '*';
+          break;
+        case 'italic':
+          formattedText = '_' + selectedText + '_';
+          break;
+        case 'strikethrough':
+          formattedText = '~' + selectedText + '~';
+          break;
+        case 'monospace':
+          formattedText = '```' + selectedText + '```';
+          break;
+        case 'inline-code':
+          formattedText = '`' + selectedText + '`';
+          break;
+        case 'bullet-list':
+          // Split by lines and add bullet points
+          formattedText = selectedText.split('\n').map(function(line) {
+            // Check if line already has bullet point format
+            if (line.trim().startsWith('* ')) {
+              return line;
+            }
+            return line.trim() ? '* ' + line.trim() : line;
+          }).join('\n');
+          break;
+        case 'numbered-list':
+          // Split by lines and add numbers
+          formattedText = selectedText.split('\n').map(function(line, index) {
+            // Check if line already has numbered format (like "1. ")
+            if (/^\d+\.\s/.test(line.trim())) {
+              return line;
+            }
+            return line.trim() ? (index + 1) + '. ' + line.trim() : line;
+          }).join('\n');
+          break;
+        case 'quote':
+          // Split by lines and add quote markers
+          formattedText = selectedText.split('\n').map(function(line) {
+            return line.trim() ? '> ' + line.trim() : line;
+          }).join('\n');
+          break;
+        default:
+          formattedText = selectedText;
+      }
+      
+      // Store the current value
+      const currentValue = textarea.value;
+      const beforeText = currentValue.substring(0, start);
+      const afterText = currentValue.substring(end);
+      
+      // Replace the selected text with formatted text
+      const newValue = beforeText + formattedText + afterText;
+      textarea.value = newValue;
+      
+      // Set cursor position after the formatted text
+      const newCursorPos = start + formattedText.length;
+      setTimeout(function() {
+        textarea.setSelectionRange(newCursorPos, newCursorPos);
+        textarea.focus();
+      }, 10);
+    }
+    
+    // Test message functionality
+    const testButtons = document.querySelectorAll('.test-message');
+    
+    testButtons.forEach(button => {
+      button.addEventListener('click', function() {
+        const phoneNumber = this.getAttribute('data-phone');
+        const recipientName = this.getAttribute('data-name');
+        const originalText = this.textContent;
+        
+        this.disabled = true;
+        this.textContent = 'Sending...';
+        
+        fetch('/api/send-test', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            phoneNumber: phoneNumber,
+            message: 'Hello, I just send it for test purpose'
+          })
+        })
+        .then(response => response.json())
+        .then(data => {
+          handleApiResponse(data, 
+            () => {
+              this.textContent = 'Sent!';
+              setTimeout(() => {
+                this.textContent = originalText;
+                this.disabled = false;
+              }, 2000);
+            },
+            () => {
+              this.textContent = originalText;
+              this.disabled = false;
+            }
+          );
+        })
+        .catch(error => {
+          console.error('Error:', error);
+          showToast('An error occurred while sending the test message', 'danger');
+          this.textContent = originalText;
+          this.disabled = false;
+        });
+      });
+    });
+    
+    // Emoji picker functionality
+    function initEmojiPicker() {
+      // This function is intentionally left empty as the emoji picker 
+      // functionality is now handled by the main.js file
+      // to prevent duplicate event listeners
+    }
+  });
+</script>
+
+<!-- Emoji Picker Modal -->
+<div id="emoji-picker-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center hidden">
+  <div class="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[80vh] overflow-hidden">
+    <div class="p-4 border-b border-gray-200 flex justify-between items-center sticky top-0 bg-white z-10">
+      <h3 class="text-lg font-medium">Emoji Picker</h3>
+      <button type="button" class="emoji-modal-close text-gray-400 hover:text-gray-500">
+        <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+        </svg>
+      </button>
+    </div>
+    
+    <div class="p-4 overflow-y-auto" style="max-height: calc(80vh - 60px);">
+      <!-- Emoji Categories -->
+      <div class="mb-4 flex flex-wrap gap-2">
+        <button type="button" class="emoji-category-btn px-3 py-1 text-sm bg-blue-100 text-blue-800 rounded-full" data-category="smileys">😀 Smileys</button>
+        <button type="button" class="emoji-category-btn px-3 py-1 text-sm bg-gray-100 hover:bg-blue-100 text-gray-800 hover:text-blue-800 rounded-full" data-category="people">👋 People</button>
+        <button type="button" class="emoji-category-btn px-3 py-1 text-sm bg-gray-100 hover:bg-blue-100 text-gray-800 hover:text-blue-800 rounded-full" data-category="animals">🐱 Animals</button>
+        <button type="button" class="emoji-category-btn px-3 py-1 text-sm bg-gray-100 hover:bg-blue-100 text-gray-800 hover:text-blue-800 rounded-full" data-category="food">🍎 Food</button>
+        <button type="button" class="emoji-category-btn px-3 py-1 text-sm bg-gray-100 hover:bg-blue-100 text-gray-800 hover:text-blue-800 rounded-full" data-category="commerce">🛒 Commerce</button>
+        <button type="button" class="emoji-category-btn px-3 py-1 text-sm bg-gray-100 hover:bg-blue-100 text-gray-800 hover:text-blue-800 rounded-full" data-category="activities">⚽ Activities</button>
+        <button type="button" class="emoji-category-btn px-3 py-1 text-sm bg-gray-100 hover:bg-blue-100 text-gray-800 hover:text-blue-800 rounded-full" data-category="travel">🚗 Travel</button>
+        <button type="button" class="emoji-category-btn px-3 py-1 text-sm bg-gray-100 hover:bg-blue-100 text-gray-800 hover:text-blue-800 rounded-full" data-category="objects">💡 Objects</button>
+        <button type="button" class="emoji-category-btn px-3 py-1 text-sm bg-gray-100 hover:bg-blue-100 text-gray-800 hover:text-blue-800 rounded-full" data-category="symbols">❤️ Symbols</button>
+        <button type="button" class="emoji-category-btn px-3 py-1 text-sm bg-gray-100 hover:bg-blue-100 text-gray-800 hover:text-blue-800 rounded-full" data-category="flags">🏁 Flags</button>
+      </div>
+      
+      <!-- Search Box -->
+      <div class="mb-4">
+        <input type="text" id="emoji-search" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="Search emojis...">
+      </div>
+      
+      <!-- Emoji Grid - Smileys & Emotions -->
+      <div id="emoji-grid-smileys" class="emoji-grid grid grid-cols-8 gap-1 mb-4">
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="😀">😀</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="😃">😃</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="😄">😄</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="😁">😁</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="😆">😆</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="😅">😅</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="😂">😂</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🤣">🤣</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="😊">😊</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="😇">😇</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🙂">🙂</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🙃">🙃</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="😉">😉</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="😌">😌</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="😍">😍</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🥰">🥰</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="😘">😘</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="😗">😗</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="😙">😙</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="😚">😚</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="😋">😋</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="😛">😛</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="😝">😝</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="😜">😜</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🤪">🤪</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🤨">🤨</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🧐">🧐</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🤓">🤓</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="😎">😎</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🤩">🤩</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🥳">🥳</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="😏">😏</button>
+      </div>
+      
+      <!-- Emoji Grid - People -->
+      <div id="emoji-grid-people" class="emoji-grid grid grid-cols-8 gap-1 mb-4 hidden">
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="👋">👋</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🤚">🤚</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🖐️">🖐️</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="✋">✋</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🖖">🖖</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="👌">👌</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🤌">🤌</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🤏">🤏</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="✌️">✌️</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🤞">🤞</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🤟">🤟</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🤘">🤘</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🤙">🤙</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="👈">👈</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="👉">👉</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="👆">👆</button>
+      </div>
+
+      <!-- Emoji Grid - Animals -->
+      <div id="emoji-grid-animals" class="emoji-grid grid grid-cols-8 gap-1 mb-4 hidden">
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🐶">🐶</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🐱">🐱</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🐭">🐭</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🐹">🐹</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🐰">🐰</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🦊">🦊</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🐻">🐻</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🐼">🐼</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🐨">🐨</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🐯">🐯</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🦁">🦁</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🐮">🐮</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🐷">🐷</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🐸">🐸</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🐵">🐵</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🐔">🐔</button>
+      </div>
+      
+      <!-- Emoji Grid - Food -->
+      <div id="emoji-grid-food" class="emoji-grid grid grid-cols-8 gap-1 mb-4 hidden">
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🍎">🍎</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🍐">🍐</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🍊">🍊</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🍋">🍋</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🍌">🍌</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🍉">🍉</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🍇">🍇</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🍓">🍓</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🍈">🍈</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🍒">🍒</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🍑">🍑</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🍍">🍍</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🥥">🥥</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🥝">🥝</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🍅">🍅</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🥑">🥑</button>
+      </div>
+      
+      <!-- Emoji Grid - Commerce -->
+      <div id="emoji-grid-commerce" class="emoji-grid grid grid-cols-8 gap-1 mb-4 hidden">
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🛒">🛒</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🛍️">🛍️</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="💰">💰</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="💵">💵</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="💴">💴</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="💶">💶</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="💷">💷</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="💸">💸</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="💳">💳</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="💱">💱</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="💲">💲</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="✉️">✉️</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="📧">📧</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="📨">📨</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="📩">📩</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="📤">📤</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="📥">📥</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="📦">📦</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🏷️">🏷️</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🏪">🏪</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🏬">🏬</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🏢">🏢</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🏦">🏦</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="📊">📊</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="📈">📈</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="📉">📉</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="📋">📋</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="📝">📝</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🧾">🧾</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🗒️">🗒️</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="📱">📱</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="💻">💻</button>
+      </div>
+      
+      <!-- Emoji Grid - Activities -->
+      <div id="emoji-grid-activities" class="emoji-grid grid grid-cols-8 gap-1 mb-4 hidden">
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="⚽">⚽</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🏀">🏀</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🏈">🏈</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="⚾">⚾</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🎾">🎾</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🏐">🏐</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🏉">🏉</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🎱">🎱</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🏓">🏓</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🏸">🏸</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🥅">🥅</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🏒">🏒</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🏑">🏑</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🥌">🥌</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="⛳">⛳</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🎣">🎣</button>
+      </div>
+      
+      <!-- Emoji Grid - Travel -->
+      <div id="emoji-grid-travel" class="emoji-grid grid grid-cols-8 gap-1 mb-4 hidden">
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🚗">🚗</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🚕">🚕</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🚙">🚙</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🚌">🚌</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🚎">🚎</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🏎️">🏎️</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🚓">🚓</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🚑">🚑</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🚒">🚒</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🚚">🚚</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🚛">🚛</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🚜">🚜</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🛴">🛴</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🚲">🚲</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🛵">🛵</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🏍️">🏍️</button>
+      </div>
+      
+      <!-- Emoji Grid - Objects -->
+      <div id="emoji-grid-objects" class="emoji-grid grid grid-cols-8 gap-1 mb-4 hidden">
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="⌚">⌚</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="📱">📱</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="💻">💻</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="⌨️">⌨️</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🖥️">🖥️</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🖨️">🖨️</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🖱️">🖱️</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🖲️">🖲️</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="💽">💽</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="💾">💾</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="💿">💿</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="📀">📀</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="📷">📷</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="📸">📸</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="📹">📹</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🎥">🎥</button>
+      </div>
+      
+      <!-- Emoji Grid - Symbols -->
+      <div id="emoji-grid-symbols" class="emoji-grid grid grid-cols-8 gap-1 mb-4 hidden">
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="❤️">❤️</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🧡">🧡</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="💛">💛</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="💚">💚</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="💙">💙</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="💜">💜</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🖤">🖤</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="💔">💔</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="❣️">❣️</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="💕">💕</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="💞">💞</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="💓">💓</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="💗">💗</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="💖">💖</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="💘">💘</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="💝">💝</button>
+      </div>
+      
+      <!-- Emoji Grid - Flags -->
+      <div id="emoji-grid-flags" class="emoji-grid grid grid-cols-8 gap-1 mb-4 hidden">
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🏁">🏁</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🚩">🚩</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🎌">🎌</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🏴">🏴</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🏳️">🏳️</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🏳️‍🌈">🏳️‍🌈</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🏳️‍⚧️">🏳️‍⚧️</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🇺🇳">🇺🇳</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🇦🇫">🇦🇫</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🇦🇽">🇦🇽</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🇦🇱">🇦🇱</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🇩🇿">🇩🇿</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🇦🇸">🇦🇸</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🇦🇩">🇦🇩</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🇦🇴">🇦🇴</button>
+        <button type="button" class="emoji-btn p-2 text-2xl hover:bg-gray-100 rounded" data-emoji="🇦🇮">🇦🇮</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<%- include('partials/footer') %> 

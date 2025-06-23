@@ -1,0 +1,23 @@
+<%- include('partials/header') %>
+
+<div class="max-w-md mx-auto bg-white p-8 rounded-lg shadow-md mt-10">
+  <h2 class="text-2xl font-bold text-center mb-6">Logout Confirmation</h2>
+  
+  <div class="text-center mb-6">
+    <p class="text-gray-700">Are you sure you want to log out?</p>
+  </div>
+  
+  <form action="/logout" method="POST" class="flex justify-center space-x-4">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    
+    <button type="submit" class="bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded transition-colors">
+      Yes, Log Out
+    </button>
+    
+    <a href="/dashboard" class="bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded transition-colors inline-block">
+      Cancel
+    </a>
+  </form>
+</div>
+
+<%- include('partials/footer') %> 

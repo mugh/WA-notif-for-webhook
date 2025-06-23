@@ -4,8 +4,10 @@
   "description": "WhatsApp webhook forwarder using Baileys",
   "main": "server.js",
   "scripts": {
+    "build:css": "node build-css.js",
+    "prestart": "npm run build:css",
     "start": "node server.js",
-    "dev": "nodemon server.js",
+    "dev": "npm run build:css && nodemon server.js",
     "setup": "node setup.js",
     "test-webhook": "node test-webhook.js",
     "test": "echo \"Error: no test specified\" && exit 1"
@@ -19,18 +21,27 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@tailwindcss/cli": "^4.1.10",
     "@whiskeysockets/baileys": "^6.7.18",
+    "bcrypt": "^6.0.0",
+    "better-sqlite3": "^11.10.0",
     "body-parser": "^2.2.0",
     "cookie-parser": "^1.4.6",
+    "csurf": "^1.11.0",
     "dotenv": "^16.5.0",
     "ejs": "^3.1.9",
     "express": "^5.1.0",
+    "express-rate-limit": "^7.5.1",
     "express-session": "^1.17.3",
+    "helmet": "^8.1.0",
     "qrcode": "^1.5.3",
     "qrcode-terminal": "^0.12.0",
     "uuid": "^9.0.1"
   },
   "devDependencies": {
-    "nodemon": "^3.1.0"
+    "autoprefixer": "^10.4.21",
+    "nodemon": "^3.1.0",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.10"
   }
 }

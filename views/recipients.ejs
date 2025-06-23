@@ -74,7 +74,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const id = this.dataset.id;
         const name = this.dataset.name;
         
-        if (confirm(`Are you sure you want to delete the recipient "${name}"?`)) {
+        showConfirmModal(`Are you sure you want to delete the recipient "${name}"? This action cannot be undone.`, () => {
           fetch(`/api/recipients/${id}`, {
             method: 'DELETE'
           })
@@ -84,18 +84,21 @@ document.addEventListener('DOMContentLoaded', function() {
               // Remove the row from the table
               this.closest('tr').remove();
               
+              // Show success toast
+              showToast('Recipient deleted successfully', 'success');
+              
               // If no more rows, refresh the page to show the empty state
               if (document.querySelectorAll('tbody tr').length === 0) {
                 window.location.reload();
               }
             } else {
-              alert(`Error: ${data.message}`);
+              showToast(data.message || 'Error deleting recipient', 'error');
             }
           })
           .catch(error => {
-            alert(`Error: ${error.message}`);
+            showToast(`Error: ${error.message}`, 'error');
           });
-        }
+        });
       });
     });
   }
