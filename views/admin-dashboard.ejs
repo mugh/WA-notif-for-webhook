@@ -80,11 +80,11 @@
           </div>
           <div class="text-right">
             <% if (connectionStatus === 'connected') { %>
-              <a href="/disconnect" class="inline-flex items-center bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded transition-colors">
+              <button id="disconnect-whatsapp" class="inline-flex items-center bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded transition-colors">
                 <i class="fas fa-unlink mr-2"></i> Disconnect WhatsApp
-              </a>
+              </button>
             <% } else { %>
-              <a href="/qrcode" class="inline-flex items-center bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded transition-colors">
+              <a href="/admin/qrcode" class="inline-flex items-center bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded transition-colors">
                 <i class="fas fa-qrcode mr-2"></i> Connect WhatsApp
               </a>
             <% } %>
@@ -105,12 +105,15 @@
           <a href="/admin/subscriptions" class="inline-flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded transition-colors">
             <i class="fas fa-credit-card mr-2"></i> Manage Subscriptions
           </a>
-          <a href="/qrcode" class="inline-flex items-center justify-center bg-cyan-600 hover:bg-cyan-700 text-white py-2 px-4 rounded transition-colors">
+          <a href="/admin/plans" class="inline-flex items-center justify-center bg-purple-600 hover:bg-purple-700 text-white py-2 px-4 rounded transition-colors">
+            <i class="fas fa-tags mr-2"></i> Subscription Plans
+          </a>
+          <a href="/admin/settings" class="inline-flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white py-2 px-4 rounded transition-colors">
+            <i class="fas fa-cog mr-2"></i> System Settings
+          </a>
+          <a href="/admin/qrcode" class="inline-flex items-center justify-center bg-cyan-600 hover:bg-cyan-700 text-white py-2 px-4 rounded transition-colors">
             <i class="fas fa-qrcode mr-2"></i> WhatsApp QR Code
           </a>
-          <button class="inline-flex items-center justify-center bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded transition-colors" onclick="refreshStatus()">
-            <i class="fas fa-sync-alt mr-2"></i> Refresh Status
-          </button>
         </div>
       </div>
     </div>
@@ -155,22 +158,64 @@
   </div>
 </div>
 
-<script>
-function refreshStatus() {
-  fetch('/api/status')
+<script nonce="<%= nonce %>">
+document.addEventListener('DOMContentLoaded', function() {
+  const refreshStatusBtn = document.getElementById('refresh-status-btn');
+  const disconnectWhatsAppBtn = document.getElementById('disconnect-whatsapp');
+  
+  if (refreshStatusBtn) {
+    refreshStatusBtn.addEventListener('click', function() {
+      refreshStatus();
+    });
+  }
+  
+  if (disconnectWhatsAppBtn) {
+    disconnectWhatsAppBtn.addEventListener('click', function() {
+      if (confirm('Are you sure you want to disconnect admin WhatsApp? This will logout the global session.')) {
+        disconnectWhatsApp();
+      }
+    });
+  }
+  
+  function refreshStatus() {
+    fetch('/api/status')
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          location.reload();
+        } else {
+          alert('Error refreshing status');
+        }
+      })
+      .catch(error => {
+        console.error('Error:', error);
+        alert('Error refreshing status');
+      });
+  }
+  
+  function disconnectWhatsApp() {
+    fetch('/admin/whatsapp/logout', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'CSRF-Token': document.querySelector('meta[name="csrf-token"]')?.content || ''
+      }
+    })
     .then(response => response.json())
     .then(data => {
       if (data.success) {
+        alert('WhatsApp disconnected successfully');
         location.reload();
       } else {
-        alert('Error refreshing status');
+        alert(data.message || 'Failed to disconnect WhatsApp');
       }
     })
     .catch(error => {
       console.error('Error:', error);
-      alert('Error refreshing status');
+      alert('Error disconnecting WhatsApp');
     });
-}
+  }
+});
 </script>
 
 <%- include('partials/footer') %> 

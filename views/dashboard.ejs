@@ -68,6 +68,8 @@
     </div>
     <div class="p-4">
       <form action="/whatsapp/config" method="POST" class="mb-4">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        
         <div class="mb-4">
           <label class="block text-gray-700 font-medium mb-2">Choose WhatsApp Number Option:</label>
           <div class="flex items-center mb-2">
@@ -139,7 +141,7 @@
 </div>
 
 
-<script>
+<script nonce="<%= nonce %>">
 document.addEventListener('DOMContentLoaded', function() {
   // Copy to clipboard functionality
   const copyButtons = document.querySelectorAll('.copy-btn');
@@ -195,24 +197,24 @@ document.addEventListener('DOMContentLoaded', function() {
         fetch('/whatsapp/logout', {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'CSRF-Token': window.getCSRFToken()
           }
         })
         .then(response => response.json())
         .then(data => {
           if (data.success) {
-            // Show success toast instead of alert
-            showToast('WhatsApp session logged out successfully.', 'success');
+            showToast('WhatsApp session logged out successfully', 'success');
             setTimeout(() => {
               window.location.reload();
             }, 1000);
           } else {
-            showToast('Failed to logout WhatsApp session.', 'error');
+            showToast(data.message || 'Failed to logout WhatsApp session', 'error');
           }
         })
         .catch(error => {
           console.error('Error:', error);
-          showToast('An error occurred while logging out.', 'error');
+          showToast('An error occurred while logging out', 'error');
         });
       });
       
@@ -268,16 +270,29 @@ document.addEventListener('DOMContentLoaded', function() {
       'bg-blue-500 text-white'
     }`;
     
-    toast.innerHTML = `
-      <div class="flex items-center">
-        <i class="fas ${type === 'success' ? 'fa-check-circle' : type === 'error' ? 'fa-exclamation-circle' : 'fa-info-circle'} mr-2"></i>
-        <span>${message}</span>
-        <button onclick="this.parentElement.parentElement.remove()" class="ml-4 text-white hover:text-gray-200">
-          <i class="fas fa-times"></i>
-        </button>
-      </div>
-    `;
+    const toastContent = document.createElement('div');
+    toastContent.className = 'flex items-center';
     
+    // Icon
+    const icon = document.createElement('i');
+    icon.className = `fas ${type === 'success' ? 'fa-check-circle' : type === 'error' ? 'fa-exclamation-circle' : 'fa-info-circle'} mr-2`;
+    toastContent.appendChild(icon);
+    
+    // Message
+    const messageSpan = document.createElement('span');
+    messageSpan.textContent = message;
+    toastContent.appendChild(messageSpan);
+    
+    // Close button
+    const closeButton = document.createElement('button');
+    closeButton.className = 'ml-4 text-white hover:text-gray-200';
+    closeButton.innerHTML = '<i class="fas fa-times"></i>';
+    closeButton.addEventListener('click', function() {
+      toast.remove();
+    });
+    toastContent.appendChild(closeButton);
+    
+    toast.appendChild(toastContent);
     document.body.appendChild(toast);
     
     // Auto remove after 5 seconds

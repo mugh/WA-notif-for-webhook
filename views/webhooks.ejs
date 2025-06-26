@@ -48,7 +48,7 @@
                   </span>
                 <% } %>
               </td>
-              <td class="py-2 px-4 border-b"><%= webhook.recipientCount %>/2</td>
+              <td class="py-2 px-4 border-b"><%= webhook.recipientCount %>/<%= recipientLimit || 2 %></td>
               <td class="py-2 px-4 border-b"><%= new Date(webhook.created_at).toLocaleDateString() %></td>
               <td class="py-2 px-4 border-b">
                 <div class="flex space-x-2">
@@ -70,7 +70,7 @@
 
 <!-- Modal will be created dynamically by main.js -->
 
-<script>
+<script nonce="<%= nonce %>">
   document.addEventListener('DOMContentLoaded', function() {
     // Copy to clipboard functionality
     const copyButtons = document.querySelectorAll('.copy-btn');

@@ -10,6 +10,8 @@
   <% } %>
   
   <form id="webhookForm" action="<%= isNew ? '/webhooks' : '/webhooks/' + webhook.id %>" method="POST">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    
     <div class="mb-6">
       <label for="name" class="block text-sm font-medium text-gray-700 mb-1">Webhook Name</label>
       <input type="text" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" id="name" name="name" value="<%= webhook.name || '' %>" required>
@@ -76,7 +78,7 @@
                 <!-- Variables Panel -->
                 <div class="border border-gray-300 rounded-md p-3 bg-gray-50">
                   <h3 class="text-sm font-medium text-gray-700 mb-2">Available Variables</h3>
-                  <div id="variables-container" class="min-h-[100px] max-h-[200px] overflow-y-auto">
+                  <div id="variables-container" class="min-h-[100px] overflow-y-auto">
                     <div class="text-sm text-gray-500 italic">No variables detected yet. Send a webhook first, then click "Get Variables".</div>
                   </div>
                   <p class="text-xs text-gray-500 mt-2">Only variable structure is displayed, not actual values.</p>
@@ -186,7 +188,7 @@
     <hr class="my-8 border-t border-gray-200">
     
     <h3 class="text-xl font-bold mb-2">Webhook Recipients</h3>
-    <p class="text-gray-600 mb-4">You can add up to 2 recipients for this webhook.</p>
+    <p class="text-gray-600 mb-4">You can add up to <%= recipientLimit || 2 %> recipients for this webhook.</p>
     
     <% if (recipients && recipients.length > 0) { %>
       <div class="overflow-x-auto">
@@ -222,7 +224,7 @@
         </table>
       </div>
       
-      <% if (recipients.length < 2) { %>
+      <% if (recipients.length < (recipientLimit || 2)) { %>
         <a href="/webhooks/<%= webhook.id %>/recipients/new" class="inline-block bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded transition-colors">Add Recipient</a>
       <% } %>
     <% } else { %>
@@ -242,7 +244,7 @@
 
 <!-- Modal will be created dynamically by main.js -->
 
-<script>
+<script nonce="<%= nonce %>">
   document.addEventListener('DOMContentLoaded', function() {
     // Initialize emoji picker functionality
     initEmojiPicker();
@@ -609,7 +611,7 @@
 </script>
 
 <!-- Emoji Picker Modal -->
-<div id="emoji-picker-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center hidden">
+<div id="emoji-picker-modal" class="fixed inset-0 bg-black bg-opacity-30 backdrop-blur-sm z-50 flex items-center justify-center hidden">
   <div class="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[80vh] overflow-hidden">
     <div class="p-4 border-b border-gray-200 flex justify-between items-center sticky top-0 bg-white z-10">
       <h3 class="text-lg font-medium">Emoji Picker</h3>

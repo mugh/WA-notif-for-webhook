@@ -17,11 +17,13 @@ const {
   webhookOperations, 
   recipientOperations,
   subscriptionPlanOperations,
-  otpOperations 
+  otpOperations,
+  settingsOperations
 } = require('./db');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const csrf = require('csurf');
+const crypto = require('crypto');
 
 // Initialize express app
 const app = express();
@@ -43,6 +45,18 @@ setInterval(() => {
   }
 }, 10 * 60 * 1000);
 
+// Clean up expired sessions every 30 minutes
+setInterval(() => {
+  try {
+    // This would require access to all active sessions
+    // For now, we'll rely on the session store's built-in cleanup
+    // and manual cleanup in the registration routes
+    console.log('Session cleanup check completed');
+  } catch (error) {
+    console.error('Error during session cleanup:', error);
+  }
+}, 30 * 60 * 1000);
+
 // Get base URL for webhook URLs
 const getBaseUrl = (req) => {
   // Check if request is HTTPS by examining headers or protocol
@@ -54,12 +68,18 @@ const getBaseUrl = (req) => {
   return `${isHttps ? 'https' : 'http'}://${req.get('host')}`;
 };
 
+// Generate CSP nonce for each request
+app.use((req, res, next) => {
+  res.locals.nonce = crypto.randomBytes(16).toString('base64');
+  next();
+});
+
 // Security middleware
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'", (req, res) => `'nonce-${res.locals.nonce}'`],
       styleSrc: ["'self'", "'unsafe-inline'", "cdnjs.cloudflare.com"],
       fontSrc: ["'self'", "cdnjs.cloudflare.com", "*.cloudflare.com"],
       imgSrc: ["'self'", "data:"]
@@ -96,11 +116,20 @@ app.use(session({
   }
 }));
 
-// CSRF protection - apply to all routes except API webhook endpoints
-const csrfProtection = csrf({ cookie: true });
+// CSRF protection - apply to all routes except API webhook endpoints and OTP verification
+const csrfProtection = csrf({ 
+  cookie: {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax'
+  }
+});
 app.use((req, res, next) => {
-  // Skip CSRF for webhook API endpoints and JSON requests
-  if (req.path.startsWith('/api/webhook/') || req.is('json')) {
+  // Skip CSRF for webhook API endpoints, JSON requests, and OTP verification routes
+  if (req.path.startsWith('/api/webhook/') || 
+      req.is('json') ||
+      req.path === '/register/verify' ||
+      req.path === '/register/resend-otp') {
     next();
   } else {
     csrfProtection(req, res, next);
@@ -113,6 +142,38 @@ app.use((req, res, next) => {
     res.locals.csrfToken = req.csrfToken();
   }
   next();
+});
+
+// Debug middleware for registration routes
+app.use('/register', (req, res, next) => {
+  console.log(`[DEBUG] ${req.method} ${req.path}`);
+  console.log('Session ID:', req.sessionID);
+  console.log('Has pending registration:', !!req.session.pendingRegistration);
+  if (req.session.pendingRegistration) {
+    console.log('Pending registration timestamp:', req.session.pendingRegistration.timestamp);
+    console.log('Registration age (ms):', Date.now() - req.session.pendingRegistration.timestamp);
+  }
+  console.log('Session keys:', Object.keys(req.session));
+  next();
+});
+
+// CSRF error handler
+app.use((err, req, res, next) => {
+  if (err.code === 'EBADCSRFTOKEN') {
+    console.log('CSRF Error on path:', req.path, 'Method:', req.method);
+    
+    // Handle CSRF token errors
+    if (req.path === '/register') {
+      // For registration form CSRF errors, just redirect to refresh
+      return res.redirect('/register');
+    } else {
+      // For other CSRF errors, show generic error
+      res.status(403);
+      res.send('Invalid CSRF token. Please refresh the page and try again.');
+    }
+  } else {
+    next(err);
+  }
 });
 
 // Set view engine
@@ -505,89 +566,223 @@ async function initUserWhatsApp(userId) {
 
 // Get the appropriate WhatsApp client for a user
 function getWhatsAppClient(userId) {
+  // If no userId provided, return system client
+  if (!userId) {
+    console.log('No userId provided, using system WhatsApp client');
+    return waClient;
+  }
+  
   // Check if user has custom WhatsApp enabled and session is active
   const config = userOperations.getWhatsAppConfig(userId);
   
-  if (config && config.customWhatsAppEnabled && config.sessionActive) {
-    // Return user-specific client if it exists
-    if (global.userWAClients && global.userWAClients.has(userId)) {
-      return global.userWAClients.get(userId);
-    }
-    // Initialize user client if it doesn't exist
-    return initUserWhatsApp(userId);
+  console.log(`Getting WhatsApp client for user ${userId}:`, {
+    hasConfig: !!config,
+    customWhatsAppEnabled: config ? config.customWhatsAppEnabled : false,
+    sessionActive: config ? config.sessionActive : false,
+    hasUserClient: global.userWAClients && global.userWAClients.has(userId),
+    systemConnected: connectionStatus === 'connected'
+  });
+  
+  // Check actual connection status
+  const isConnected = global.userConnectionStatus && 
+                      global.userConnectionStatus.get(userId) === 'connected';
+                      
+  // If there's a mismatch between database and actual connection status, update database
+  if (config && config.sessionActive !== isConnected) {
+    console.log(`Updating WhatsApp session status for user ${userId} from ${config.sessionActive} to ${isConnected}`);
+    userOperations.updateWhatsAppSessionStatus(userId, isConnected);
+  }
+  
+  // Only use user's WhatsApp if:
+  // 1. Custom WhatsApp is enabled in config
+  // 2. User actually wants to use their own WhatsApp (not system)
+  // 3. User's WhatsApp is connected
+  if (config && 
+      config.customWhatsAppEnabled && 
+      isConnected && 
+      global.userWAClients && 
+      global.userWAClients.has(userId)) {
+    console.log(`Using existing WhatsApp client for user ${userId}`);
+    return global.userWAClients.get(userId);
   }
   
   // Return system client as fallback
+  console.log(`Falling back to system WhatsApp client for user ${userId}`);
   return waClient;
 }
 
 // Function to send a message to a recipient
 async function sendMessage(recipientNumber, message, userId = null) {
-  // Get the appropriate client
-  const client = userId ? getWhatsAppClient(userId) : waClient;
+  console.log(`Sending message with userId: ${userId}`);
   
-  if (!client || (userId ? global.userConnectionStatus.get(userId) !== 'connected' : connectionStatus !== 'connected')) {
+  // Check if user wants to use their own WhatsApp
+  let useUserWhatsApp = false;
+  let userClientConnected = false;
+  let systemClientConnected = connectionStatus === 'connected';
+  
+  if (userId) {
+    const config = userOperations.getWhatsAppConfig(userId);
+    useUserWhatsApp = config && config.customWhatsAppEnabled;
+    userClientConnected = global.userConnectionStatus && 
+                         global.userConnectionStatus.get(userId) === 'connected';
+  }
+  
+  console.log(`WhatsApp status check for sending:`, {
+    userId: userId,
+    useUserWhatsApp: useUserWhatsApp,
+    userClientConnected: userClientConnected,
+    systemClientConnected: systemClientConnected
+  });
+  
+  // First try user's WhatsApp if enabled and connected
+  if (useUserWhatsApp && userClientConnected && global.userWAClients && global.userWAClients.has(userId)) {
+    try {
+      const userClient = global.userWAClients.get(userId);
+      console.log(`Attempting to send with user's WhatsApp client`);
+      
+      // Format the recipient number
+      const formattedNumber = recipientNumber.includes('@s.whatsapp.net') 
+        ? recipientNumber 
+        : `${recipientNumber.replace(/[^0-9]/g, '')}@s.whatsapp.net`;
+      
+      // Send the message
+      await userClient.sendMessage(formattedNumber, { text: message });
+      console.log(`Message sent to ${formattedNumber} using user's WhatsApp: ${message.substring(0, 50)}...`);
+      return true;
+    } catch (userError) {
+      console.error(`Error sending with user's WhatsApp:`, userError);
+      console.log(`Falling back to system WhatsApp client...`);
+      // Fall back to system client
+    }
+  } else if (useUserWhatsApp) {
+    console.log(`User has custom WhatsApp enabled but client is not connected. Falling back to system client.`);
+  }
+  
+  // If we're here, either user client failed or is not available/enabled
+  // Try system client
+  if (!systemClientConnected) {
+    console.error(`System WhatsApp client not connected. Cannot send message.`);
     throw new Error('WhatsApp client not connected');
   }
-
+  
   try {
-    // Format the recipient number to ensure it has @s.whatsapp.net
+    // Format the recipient number
     const formattedNumber = recipientNumber.includes('@s.whatsapp.net') 
       ? recipientNumber 
       : `${recipientNumber.replace(/[^0-9]/g, '')}@s.whatsapp.net`;
-
-    // Send the message
-    await client.sendMessage(formattedNumber, { text: message });
-    console.log(`Message sent to ${formattedNumber}: ${message}`);
+    
+    // Send the message using system client
+    await waClient.sendMessage(formattedNumber, { text: message });
+    console.log(`Message sent to ${formattedNumber} using system WhatsApp: ${message.substring(0, 50)}...`);
     return true;
   } catch (error) {
-    console.error('Error sending message:', error);
+    console.error(`Error sending message with system WhatsApp:`, error);
     throw error;
   }
 }
 
 // Function to send an image message to a recipient
 async function sendImageMessage(recipientNumber, imageUrl, caption = '', userId = null) {
-  // Get the appropriate client
-  const client = userId ? getWhatsAppClient(userId) : waClient;
+  console.log(`Sending image message with userId: ${userId}`);
   
-  if (!client || (userId ? global.userConnectionStatus.get(userId) !== 'connected' : connectionStatus !== 'connected')) {
+  // Check if user wants to use their own WhatsApp
+  let useUserWhatsApp = false;
+  let userClientConnected = false;
+  let systemClientConnected = connectionStatus === 'connected';
+  
+  if (userId) {
+    const config = userOperations.getWhatsAppConfig(userId);
+    useUserWhatsApp = config && config.customWhatsAppEnabled;
+    userClientConnected = global.userConnectionStatus && 
+                         global.userConnectionStatus.get(userId) === 'connected';
+  }
+  
+  console.log(`WhatsApp status check for sending image:`, {
+    userId: userId,
+    useUserWhatsApp: useUserWhatsApp,
+    userClientConnected: userClientConnected,
+    systemClientConnected: systemClientConnected
+  });
+  
+  // First try user's WhatsApp if enabled and connected
+  if (useUserWhatsApp && userClientConnected && global.userWAClients && global.userWAClients.has(userId)) {
+    try {
+      const userClient = global.userWAClients.get(userId);
+      console.log(`Attempting to send image with user's WhatsApp client`);
+      
+      // Format the recipient number
+      const formattedNumber = recipientNumber.includes('@s.whatsapp.net') 
+        ? recipientNumber 
+        : `${recipientNumber.replace(/[^0-9]/g, '')}@s.whatsapp.net`;
+      
+      // Send the image
+      await userClient.sendMessage(formattedNumber, {
+        image: { url: imageUrl },
+        caption: caption
+      });
+      
+      console.log(`Image message sent to ${formattedNumber} using user's WhatsApp: ${imageUrl}`);
+      return true;
+    } catch (userError) {
+      console.error(`Error sending image with user's WhatsApp:`, userError);
+      console.log(`Falling back to system WhatsApp client...`);
+      // Fall back to system client
+    }
+  } else if (useUserWhatsApp) {
+    console.log(`User has custom WhatsApp enabled but client is not connected. Falling back to system client.`);
+  }
+  
+  // If we're here, either user client failed or is not available/enabled
+  // Try system client
+  if (!systemClientConnected) {
+    console.error(`System WhatsApp client not connected. Cannot send image message.`);
     throw new Error('WhatsApp client not connected');
   }
-
+  
   try {
     // Format the recipient number
     const formattedNumber = recipientNumber.includes('@s.whatsapp.net') 
       ? recipientNumber 
       : `${recipientNumber.replace(/[^0-9]/g, '')}@s.whatsapp.net`;
-
-    // Send the image
-    await client.sendMessage(formattedNumber, {
+    
+    // Send the image using system client
+    await waClient.sendMessage(formattedNumber, {
       image: { url: imageUrl },
       caption: caption
     });
     
-    console.log(`Image message sent to ${formattedNumber}: ${imageUrl}`);
+    console.log(`Image message sent to ${formattedNumber} using system WhatsApp: ${imageUrl}`);
     return true;
   } catch (error) {
-    console.error('Error sending image message:', error);
+    console.error(`Error sending image message with system WhatsApp:`, error);
     throw error;
   }
 }
 
 // Function to add a message to the queue
 function addToQueue(message) {
+  console.log(`Adding message to queue:`, {
+    type: message.type,
+    webhookId: message.webhookId,
+    userId: message.userId,
+    hasText: !!message.text,
+    textPreview: message.text ? message.text.substring(0, 50) + '...' : null
+  });
+
   // Ensure userId is included in the message object
   if (!message.userId && message.webhookId) {
     // Try to get the user ID from the webhook
     const webhook = webhookOperations.getWebhookByWebhookId(message.webhookId);
     if (webhook) {
       message.userId = webhook.user_id;
+      console.log(`Set userId to ${message.userId} from webhook ${message.webhookId}`);
+    } else {
+      console.log(`Could not find webhook with ID ${message.webhookId}`);
     }
   }
   
   messageQueue.push(message);
-  console.log(`Added message to queue. Queue length: ${messageQueue.length}`);
+  console.log(`Added message to queue. Queue length: ${messageQueue.length}, userId: ${message.userId || 'none'}`);
   
   // Start processing the queue if not already processing
   if (!isProcessingQueue) {
@@ -595,6 +790,16 @@ function addToQueue(message) {
     const isConnected = message.userId && 
       global.userConnectionStatus && 
       global.userConnectionStatus.get(message.userId) === 'connected';
+      
+    console.log(`Queue processing check:`, {
+      userId: message.userId,
+      hasUserConnectionStatus: !!global.userConnectionStatus,
+      userConnectionStatus: message.userId && global.userConnectionStatus ? 
+                           global.userConnectionStatus.get(message.userId) : 'unknown',
+      isUserConnected: isConnected,
+      systemConnectionStatus: connectionStatus,
+      willProcessQueue: isConnected || connectionStatus === 'connected'
+    });
       
     if (isConnected || connectionStatus === 'connected') {
       processQueue();
@@ -720,7 +925,8 @@ function capitalizeFirstLetter(string) {
 
 // Function to process the message queue
 async function processQueue() {
-  if (isProcessingQueue || messageQueue.length === 0 || connectionStatus !== 'connected') {
+  if (isProcessingQueue || messageQueue.length === 0) {
+    console.log(`Queue processing skipped: isProcessing=${isProcessingQueue}, queueLength=${messageQueue.length}`);
     return;
   }
 
@@ -728,16 +934,65 @@ async function processQueue() {
   console.log(`Processing message queue. ${messageQueue.length} messages in queue.`);
 
   try {
-    while (messageQueue.length > 0 && connectionStatus === 'connected') {
+    while (messageQueue.length > 0) {
       const message = messageQueue.shift();
+      console.log(`Processing message:`, { 
+        type: message.type, 
+        webhookId: message.webhookId, 
+        userId: message.userId, 
+        hasText: !!message.text,
+        textPreview: message.text ? message.text.substring(0, 50) + '...' : null
+      });
+      
+      // Double check that userId is set correctly
+      if (!message.userId && message.webhookId) {
+        const webhook = webhookOperations.getWebhookByWebhookId(message.webhookId);
+        if (webhook) {
+          message.userId = webhook.user_id;
+          console.log(`Updated userId for message to ${message.userId} from webhook`);
+        }
+      }
+      
+      // Check if system WhatsApp is connected (we'll always try to fall back to it)
+      const systemConnected = connectionStatus === 'connected';
+      
+      // Check if user's WhatsApp is connected (we'll try this first if enabled)
+      const userConnected = message.userId && 
+                           global.userConnectionStatus && 
+                           global.userConnectionStatus.get(message.userId) === 'connected';
+      
+      // Check if user has custom WhatsApp enabled
+      let useUserWhatsApp = false;
+      if (message.userId) {
+        const config = userOperations.getWhatsAppConfig(message.userId);
+        useUserWhatsApp = config && config.customWhatsAppEnabled;
+      }
+      
+      console.log(`Queue processing status check:`, {
+        userId: message.userId,
+        useUserWhatsApp: useUserWhatsApp,
+        userConnected: userConnected,
+        systemConnected: systemConnected
+      });
+      
+      // Skip if system WhatsApp is not connected (we need it as fallback)
+      if (!systemConnected) {
+        console.log(`Skipping message: System WhatsApp not connected. Putting message back in queue.`);
+        // Put the message back in the queue for later processing
+        messageQueue.unshift(message);
+        break;
+      }
       
       // Get recipients based on webhook ID if provided, otherwise use all active recipients
       let recipients = [];
       if (message.webhookId) {
+        console.log(`Looking for recipients with webhook ID: ${message.webhookId} (type: ${typeof message.webhookId})`);
         recipients = recipientOperations.getRecipientsByWebhookId(message.webhookId).filter(r => r.active);
+        console.log(`Found ${recipients.length} active recipients for webhook ${message.webhookId}`);
       } else {
         // For backward compatibility and admin test messages - get all recipients
         recipients = [];
+        console.log('No webhookId provided, no recipients will be processed');
       }
       
       // Reset message counts every hour
@@ -752,6 +1007,7 @@ async function processQueue() {
       
       for (const recipient of recipients) {
         const phoneNumber = recipient.phone_number;
+        console.log(`Processing recipient: ${recipient.name} (${phoneNumber})`);
         
         // Initialize tracking for this recipient if not exists
         if (!messageCountPerRecipient[phoneNumber]) {
@@ -761,9 +1017,10 @@ async function processQueue() {
           errorCountPerRecipient[phoneNumber] = 0;
         }
         
-        // Check if we've sent too many messages to this recipient recently (limit: 20 per hour)
-        if (messageCountPerRecipient[phoneNumber] >= 20) {
-          console.log(`Skipping message to ${phoneNumber}: Rate limit reached (${messageCountPerRecipient[phoneNumber]}/20 messages this hour)`);
+        // Check if we've sent too many messages to this recipient recently (limit: configurable per hour)
+        const messageRateLimit = settingsOperations.getSettingAsNumber('message_rate_limit', 20);
+        if (messageCountPerRecipient[phoneNumber] >= messageRateLimit) {
+          console.log(`Skipping message to ${phoneNumber}: Rate limit reached (${messageCountPerRecipient[phoneNumber]}/${messageRateLimit} messages this hour)`);
           continue;
         }
         
@@ -790,28 +1047,31 @@ async function processQueue() {
           await new Promise(resolve => setTimeout(resolve, waitTime));
         }
         
-        try {
-          if (message.type === 'image') {
-            await sendImageMessage(phoneNumber, message.imageUrl, message.caption || '', message.userId);
-          } else {
-            await sendMessage(phoneNumber, message.text, message.userId);
+                  try {
+            console.log(`Sending message to ${phoneNumber} for webhook ${message.webhookId} (userId: ${message.userId})...`);
+            if (message.type === 'image') {
+              await sendImageMessage(phoneNumber, message.imageUrl, message.caption || '', message.userId);
+            } else {
+              await sendMessage(phoneNumber, message.text, message.userId);
+            }
+            
+            console.log(`✅ Message sent successfully to ${phoneNumber}`);
+            
+            // Update tracking
+            messageCountPerRecipient[phoneNumber]++;
+            lastMessageTimePerRecipient[phoneNumber] = Date.now();
+            
+            // Reset error count on success
+            errorCountPerRecipient[phoneNumber] = 0;
+            
+          } catch (error) {
+            console.error(`❌ Error sending message to ${phoneNumber}:`, error);
+            
+            // Increment error count for this recipient
+            errorCountPerRecipient[phoneNumber]++;
+            
+            // Continue with next recipient even if one fails
           }
-          
-          // Update tracking
-          messageCountPerRecipient[phoneNumber]++;
-          lastMessageTimePerRecipient[phoneNumber] = Date.now();
-          
-          // Reset error count on success
-          errorCountPerRecipient[phoneNumber] = 0;
-          
-        } catch (error) {
-          console.error(`Error sending message to ${phoneNumber}:`, error);
-          
-          // Increment error count for this recipient
-          errorCountPerRecipient[phoneNumber]++;
-          
-          // Continue with next recipient even if one fails
-        }
       }
       
       // Add a delay between processing different messages in the queue
@@ -821,9 +1081,10 @@ async function processQueue() {
     console.error('Error processing queue:', error);
   } finally {
     isProcessingQueue = false;
+    console.log(`Queue processing finished. Remaining messages: ${messageQueue.length}`);
     
-    // If there are still messages in the queue and we're connected, continue processing
-    if (messageQueue.length > 0 && connectionStatus === 'connected') {
+    // If there are still messages in the queue, continue processing after a delay
+    if (messageQueue.length > 0) {
       setTimeout(processQueue, 2000 + Math.random() * 2000); // 2-4s delay before next batch
     }
   }
@@ -926,12 +1187,168 @@ app.get('/register', (req, res) => {
   if (req.session.user) {
     return res.redirect('/dashboard');
   }
+  
+  // Get error message from session (if any)
+  const errorMessage = req.session.registrationError;
+  
+  // Clear any pending registration data when accessing the registration page
+  if (req.session.pendingRegistration) {
+    delete req.session.pendingRegistration;
+  }
+  
+  // Clear error message from session
+  if (req.session.registrationError) {
+    delete req.session.registrationError;
+  }
+  
   res.render('register', { 
-    error: null, 
+    error: errorMessage || null, 
     step: 'register',
     phoneNumber: null,
     csrfToken: req.csrfToken()
   });
+});
+
+// Route to go back to registration (clears session)
+app.get('/register/back', (req, res) => {
+  // Clear pending registration data
+  if (req.session.pendingRegistration) {
+    delete req.session.pendingRegistration;
+  }
+  res.redirect('/register');
+});
+
+// Route to handle lost session during OTP verification
+app.get('/register/session-lost', (req, res) => {
+  // Clear any remaining registration data
+  if (req.session.pendingRegistration) {
+    delete req.session.pendingRegistration;
+  }
+  
+  req.session.registrationError = 'Your session has expired during OTP verification. Please register again.';
+  res.redirect('/register');
+});
+
+// Fallback OTP verification route without CSRF (for emergency cases)
+app.post('/register/verify-fallback', async (req, res) => {
+  const { otpCode, phoneNumber } = req.body;
+  
+  console.log('Fallback OTP verification attempt for phone:', phoneNumber);
+  
+  try {
+    if (!otpCode || !phoneNumber) {
+      return res.json({ 
+        success: false, 
+        message: 'OTP code and phone number are required' 
+      });
+    }
+    
+    // Verify OTP directly
+    const isValidOTP = otpOperations.verifyOTP(phoneNumber, otpCode, 'register');
+    
+    if (!isValidOTP) {
+      return res.json({ 
+        success: false, 
+        message: 'Invalid or expired OTP code' 
+      });
+    }
+    
+    // Find pending registration by phone number (as fallback)
+    // This is a fallback mechanism when session is lost
+    return res.json({ 
+      success: false, 
+      message: 'OTP is valid but session is lost. Please register again.',
+      action: 'restart'
+    });
+    
+  } catch (error) {
+    console.error('Fallback OTP verification error:', error);
+    return res.json({ 
+      success: false, 
+      message: 'Verification failed. Please try again.' 
+    });
+  }
+});
+
+// Resend OTP route
+app.post('/register/resend-otp', async (req, res) => {
+  try {
+    // Session-based security: Check if there's a valid pending registration
+    if (!req.session.pendingRegistration) {
+      req.session.registrationError = 'No registration session found. Please start registration again.';
+      return res.redirect('/register');
+    }
+
+    const { phoneNumber, timestamp } = req.session.pendingRegistration;
+    
+    // Check if pending registration is expired (older than 10 minutes)
+    const now = Date.now();
+    const registrationAge = now - timestamp;
+    const maxAge = 10 * 60 * 1000; // 10 minutes
+    
+    if (registrationAge > maxAge) {
+      // Clear expired pending registration
+      delete req.session.pendingRegistration;
+      
+      // Set error message in session and redirect
+      req.session.registrationError = 'Registration session expired. Please register again.';
+      return res.redirect('/register');
+    }
+    
+    // Rate limiting: Check if user is trying to resend too frequently
+    if (!req.session.lastResendTime) {
+      req.session.lastResendTime = now;
+    } else {
+      const timeSinceLastResend = now - req.session.lastResendTime;
+      if (timeSinceLastResend < 30000) { // 30 seconds minimum between resends
+        const waitTime = Math.ceil((30000 - timeSinceLastResend) / 1000);
+        return res.render('register', {
+          error: `Please wait ${waitTime} seconds before requesting a new OTP.`,
+          step: 'verify',
+          phoneNumber: phoneNumber,
+          message: null
+        });
+      }
+      req.session.lastResendTime = now;
+    }
+    
+    // Generate and send new OTP
+    const otpCode = otpOperations.generateOTPCode();
+    otpOperations.createOTP(phoneNumber, otpCode, 'register');
+    
+    // Send OTP via WhatsApp
+    const otpSent = await sendOTPViaWhatsApp(phoneNumber, otpCode);
+    
+    if (!otpSent) {
+      return res.render('register', {
+        error: 'Failed to send OTP. Please try again.',
+        step: 'verify',
+        phoneNumber: phoneNumber,
+        message: null
+      });
+    }
+    
+    // Update timestamp and reset OTP fail count
+    req.session.pendingRegistration.timestamp = Date.now();
+    delete req.session.otpFailCount;
+    
+    res.render('register', {
+      error: null,
+      step: 'verify',
+      phoneNumber: phoneNumber,
+      message: 'New OTP has been sent to your WhatsApp number'
+    });
+    
+  } catch (error) {
+    console.error('Resend OTP error:', error);
+    
+    res.render('register', {
+      error: 'Failed to resend OTP. Please try again.',
+      step: 'verify',
+      phoneNumber: req.session.pendingRegistration?.phoneNumber || null,
+      message: null
+    });
+  }
 });
 
 // Registration process - Step 1: Send OTP
@@ -1001,7 +1418,7 @@ app.post('/register', async (req, res) => {
       formattedPhone = '+62' + formattedPhone;
     }
     
-    // Check if phone number already exists
+    // Check if phone number already exists (including in pending registration)
     const existingUser = userOperations.getUserByPhoneNumber(formattedPhone);
     if (existingUser) {
       return res.render('register', { 
@@ -1012,14 +1429,36 @@ app.post('/register', async (req, res) => {
       });
     }
 
-    // Check if username already exists
+    // Check if username already exists (including in pending registration)
     const existingUsername = userOperations.getUserByUsername(username);
     if (existingUsername) {
       return res.render('register', { 
         error: 'Username already exists',
         step: 'register',
-        phoneNumber: null
+        phoneNumber: null,
+        csrfToken: req.csrfToken()
       });
+    }
+    
+    // Check if there's already a pending registration for this phone number or username
+    if (req.session.pendingRegistration) {
+      const pending = req.session.pendingRegistration;
+      const pendingAge = Date.now() - pending.timestamp;
+      const maxAge = 10 * 60 * 1000; // 10 minutes
+      
+      // If pending registration is still valid and matches current request
+      if (pendingAge <= maxAge && 
+          (pending.phoneNumber === formattedPhone || pending.username === username)) {
+        return res.render('register', { 
+          error: 'Registration already in progress. Please check your WhatsApp for OTP.',
+          step: 'verify',
+          phoneNumber: pending.phoneNumber,
+          csrfToken: req.csrfToken()
+        });
+      } else {
+        // Clear expired or mismatched pending registration
+        delete req.session.pendingRegistration;
+      }
     }
     
     // Generate and send OTP
@@ -1033,7 +1472,8 @@ app.post('/register', async (req, res) => {
       return res.render('register', { 
         error: 'Failed to send OTP. Please check your phone number and try again.',
         step: 'register',
-        phoneNumber: null
+        phoneNumber: null,
+        csrfToken: req.csrfToken()
       });
     }
     
@@ -1041,7 +1481,8 @@ app.post('/register', async (req, res) => {
     req.session.pendingRegistration = {
       username,
       phoneNumber: formattedPhone,
-      password
+      password,
+      timestamp: Date.now() // Add timestamp for expiration check
     };
     
     res.render('register', { 
@@ -1055,41 +1496,116 @@ app.post('/register', async (req, res) => {
     res.render('register', { 
       error: error.message,
       step: 'register',
-      phoneNumber: null
+      phoneNumber: null,
+      csrfToken: req.csrfToken()
     });
   }
 });
 
 // Registration process - Step 2: Verify OTP
-app.post('/register/verify', (req, res) => {
+app.post('/register/verify', async (req, res) => {
   const { otpCode } = req.body;
   
   try {
+    console.log('OTP verification attempt. Session pending registration:', !!req.session.pendingRegistration);
+    
+    // Session-based security: Check if there's a valid pending registration
     if (!req.session.pendingRegistration) {
+      console.log('No pending registration found, redirecting to register');
+      req.session.registrationError = 'No registration session found. Please start registration again.';
       return res.redirect('/register');
     }
 
-    const { username, phoneNumber, password } = req.session.pendingRegistration;
+    const { username, phoneNumber, password, timestamp } = req.session.pendingRegistration;
+    console.log('Pending registration found for phone:', phoneNumber);
     
-    // Verify OTP
-    const isValidOTP = otpOperations.verifyOTP(phoneNumber, otpCode, 'register');
+    // Additional security: Check request timing (prevent rapid-fire attempts)
+    if (!req.session.lastOtpAttempt) {
+      req.session.lastOtpAttempt = Date.now();
+    } else {
+      const timeSinceLastAttempt = Date.now() - req.session.lastOtpAttempt;
+      if (timeSinceLastAttempt < 3000) { // 3 seconds minimum between attempts
+        return res.render('register', {
+          error: 'Please wait a moment before trying again.',
+          step: 'verify',
+          phoneNumber: phoneNumber,
+          message: null
+        });
+      }
+      req.session.lastOtpAttempt = Date.now();
+    }
     
-    if (!isValidOTP) {
-      return res.render('register', { 
-        error: 'Invalid or expired OTP code',
+    // Check if pending registration is expired (older than 10 minutes)
+    const now = Date.now();
+    const registrationAge = now - timestamp;
+    const maxAge = 10 * 60 * 1000; // 10 minutes
+    
+    if (registrationAge > maxAge) {
+      console.log('Pending registration expired, age:', registrationAge, 'ms');
+      // Clear expired pending registration
+      delete req.session.pendingRegistration;
+      delete req.session.lastOtpAttempt;
+      
+      // Set error message in session and redirect
+      req.session.registrationError = 'Registration session expired. Please register again.';
+      return res.redirect('/register');
+    }
+    
+    // Additional security: Validate OTP format
+    if (!otpCode || !/^\d{6}$/.test(otpCode)) {
+      return res.render('register', {
+        error: 'Please enter a valid 6-digit OTP code.',
         step: 'verify',
-        phoneNumber: phoneNumber
+        phoneNumber: phoneNumber,
+        message: null
       });
     }
     
-    // Create user
-    const userId = userOperations.createUser(username, password, phoneNumber);
+    // Verify OTP
+    console.log('Verifying OTP for phone:', phoneNumber);
+    const isValidOTP = otpOperations.verifyOTP(phoneNumber, otpCode, 'register');
+    
+    if (!isValidOTP) {
+      console.log('Invalid OTP provided');
+      
+      // Count failed attempts
+      if (!req.session.otpFailCount) {
+        req.session.otpFailCount = 1;
+      } else {
+        req.session.otpFailCount++;
+      }
+      
+      // After 3 failed attempts, clear session
+      if (req.session.otpFailCount >= 3) {
+        console.log('Too many failed OTP attempts, clearing session');
+        delete req.session.pendingRegistration;
+        delete req.session.lastOtpAttempt;
+        delete req.session.otpFailCount;
+        
+        req.session.registrationError = 'Too many failed attempts. Please register again.';
+        return res.redirect('/register');
+      }
+      
+      return res.render('register', {
+        error: `Invalid OTP code. ${3 - req.session.otpFailCount} attempts remaining.`,
+        step: 'verify',
+        phoneNumber: phoneNumber,
+        message: null
+      });
+    }
+    
+    console.log('OTP verified successfully, creating user');
+    // Create user (await the async function)
+    const userId = await userOperations.createUser(username, password, phoneNumber);
+    console.log('User created with ID:', userId);
     
     // Mark phone as verified
     userOperations.verifyPhone(userId);
     
-    // Clear pending registration
+    // Clear all session data related to registration
     delete req.session.pendingRegistration;
+    delete req.session.lastOtpAttempt;
+    delete req.session.otpFailCount;
     
     req.session.user = {
       id: userId,
@@ -1098,14 +1614,19 @@ app.post('/register/verify', (req, res) => {
       role: 'user'
     };
     
+    console.log('Registration completed successfully');
     res.redirect('/dashboard');
   } catch (error) {
     console.error('OTP verification error:', error);
-    res.render('register', { 
-      error: error.message,
-      step: 'verify',
-      phoneNumber: req.session.pendingRegistration?.phoneNumber || null
-    });
+    
+    // Clear all registration session data on any error
+    delete req.session.pendingRegistration;
+    delete req.session.lastOtpAttempt;
+    delete req.session.otpFailCount;
+    
+    // Set error message in session and redirect
+    req.session.registrationError = 'Registration failed. Please try again.';
+    res.redirect('/register');
   }
 });
 
@@ -1392,7 +1913,7 @@ app.get('/delete-account', isAuthenticated, (req, res) => {
 });
 
 // Delete Account - POST
-app.post('/delete-account', isAuthenticated, (req, res) => {
+app.post('/delete-account', isAuthenticated, async (req, res) => {
   const { password, confirmDelete } = req.body;
   
   try {
@@ -1413,9 +1934,17 @@ app.post('/delete-account', isAuthenticated, (req, res) => {
       });
     }
     
-    // Verify current password
+    // Verify current password using proper bcrypt comparison
     const user = userOperations.getUserById(req.session.user.id);
-    if (!user || user.password !== password) {
+    if (!user) {
+      return res.render('delete-account', {
+        user: req.session.user,
+        error: 'User not found'
+      });
+    }
+    
+    const isValidPassword = await userOperations.verifyPassword(user, password);
+    if (!isValidPassword) {
       return res.render('delete-account', {
         user: req.session.user,
         error: 'Password is incorrect'
@@ -1620,74 +2149,95 @@ app.post('/whatsapp/logout', isAuthenticated, (req, res) => {
   try {
     const userId = req.session.user.id;
     
-    // Check if user has a WhatsApp client
-    if (global.userWAClients && global.userWAClients.has(userId)) {
+    console.log(`Attempting to logout WhatsApp session for user ${userId}`);
+    
+    // Check if user has custom WhatsApp enabled
+    const whatsappConfig = userOperations.getWhatsAppConfig(userId);
+    if (!whatsappConfig || !whatsappConfig.customWhatsAppEnabled) {
+      console.log(`User ${userId} does not have custom WhatsApp enabled`);
+      return res.json({ success: false, message: 'Custom WhatsApp not enabled for this user' });
+    }
+    
+    // Check if user has a WhatsApp client or has an active session
+    const hasClient = global.userWAClients && global.userWAClients.has(userId);
+    const isConnected = global.userConnectionStatus && 
+                        global.userConnectionStatus.get(userId) === 'connected';
+    
+    console.log(`Logout check for user ${userId}:`, {
+      hasClient: hasClient,
+      connectionStatus: global.userConnectionStatus ? global.userConnectionStatus.get(userId) : 'unknown',
+      isConnected: isConnected,
+      sessionActive: whatsappConfig.sessionActive
+    });
+    
+    // If we have a client, try to disconnect it
+    if (hasClient) {
       const userClient = global.userWAClients.get(userId);
       
-      // Logout the client dengan aman
+      // Logout the client safely
       if (userClient) {
         console.log(`Logging out WhatsApp session for user ${userId}`);
         
-        // Hapus event listeners untuk mencegah memory leak
+        // Remove event listeners to prevent memory leaks
         try {
-          userClient.ev.removeAllListeners('connection.update');
-          userClient.ev.removeAllListeners('creds.update');
-          userClient.ev.removeAllListeners('error');
+          if (userClient.ev) {
+            userClient.ev.removeAllListeners('connection.update');
+            userClient.ev.removeAllListeners('creds.update');
+            userClient.ev.removeAllListeners('error');
+          }
         } catch (err) {
           console.log(`Error removing event listeners for user ${userId}:`, err);
-          // Lanjutkan meskipun ada error
+          // Continue even if there's an error
         }
         
-        // Coba logout dengan aman
+        // Try to logout safely
         try {
           if (typeof userClient.logout === 'function') {
             userClient.logout().catch(err => {
               console.log(`Error during logout for user ${userId}:`, err);
-              // Lanjutkan meskipun ada error
+              // Continue even if there's an error
             });
           }
         } catch (err) {
           console.log(`Error calling logout for user ${userId}:`, err);
-          // Lanjutkan meskipun ada error
-        }
-        
-        // Hapus file sesi jika perlu
-        try {
-          const USER_SESSION_DIR = path.join(__dirname, 'sessions', `user_${userId}`);
-          if (fs.existsSync(USER_SESSION_DIR)) {
-            // Hapus file kunci sesi (creds.json)
-            const credsFile = path.join(USER_SESSION_DIR, 'creds.json');
-            if (fs.existsSync(credsFile)) {
-              fs.unlinkSync(credsFile);
-              console.log(`Deleted creds file for user ${userId}`);
-            }
-          }
-        } catch (err) {
-          console.log(`Error deleting session files for user ${userId}:`, err);
-          // Lanjutkan meskipun ada error
+          // Continue even if there's an error
         }
       }
       
       // Remove client from map
       global.userWAClients.delete(userId);
-      
-      // Clear QR code
-      if (global.userQRCodes) {
-        global.userQRCodes.delete(userId);
-      }
-      
-      // Update connection status
-      if (global.userConnectionStatus) {
-        global.userConnectionStatus.set(userId, 'disconnected');
-      }
-      
-      // Update database
-      userOperations.updateWhatsAppSessionStatus(userId, false);
-      
-      return res.json({ success: true, message: 'WhatsApp session logged out successfully' });
     }
     
-    return res.json({ success: false, message: 'No active WhatsApp session found' });
+    // Always try to delete session files regardless of client status
+    try {
+      const USER_SESSION_DIR = path.join(__dirname, 'sessions', `user_${userId}`);
+      if (fs.existsSync(USER_SESSION_DIR)) {
+        // Delete session key file (creds.json)
+        const credsFile = path.join(USER_SESSION_DIR, 'creds.json');
+        if (fs.existsSync(credsFile)) {
+          fs.unlinkSync(credsFile);
+          console.log(`Deleted creds file for user ${userId}`);
+        }
+      }
+    } catch (err) {
+      console.log(`Error deleting session files for user ${userId}:`, err);
+      // Continue even if there's an error
+    }
+    
+    // Clear QR code
+    if (global.userQRCodes) {
+      global.userQRCodes.delete(userId);
+    }
+    
+    // Update connection status
+    if (global.userConnectionStatus) {
+      global.userConnectionStatus.set(userId, 'disconnected');
+    }
+    
+    // Update database
+    userOperations.updateWhatsAppSessionStatus(userId, false);
+    
+    return res.json({ success: true, message: 'WhatsApp session logged out successfully' });
   } catch (error) {
     console.error('Error logging out WhatsApp session:', error);
     return res.json({ success: false, message: 'Error logging out WhatsApp session' });
@@ -1699,17 +2249,26 @@ app.post('/api/qrcode', isAuthenticated, (req, res) => {
   try {
     const userId = req.session.user.id;
     
+    console.log(`QR code generation requested for user ${userId}`);
+    
     // Check if user has custom WhatsApp enabled
     const whatsappConfig = userOperations.getWhatsAppConfig(userId);
     if (!whatsappConfig || !whatsappConfig.customWhatsAppEnabled) {
+      console.log(`User ${userId} does not have custom WhatsApp enabled`);
       return res.json({ success: false, message: 'Custom WhatsApp not enabled' });
     }
     
-    // Logout existing client if any dengan aman
+    console.log(`QR code generation check for user ${userId}:`, {
+      hasClient: global.userWAClients && global.userWAClients.has(userId),
+      connectionStatus: global.userConnectionStatus ? global.userConnectionStatus.get(userId) : 'unknown',
+      sessionActive: whatsappConfig.sessionActive
+    });
+    
+    // Logout existing client if any safely
     if (global.userWAClients && global.userWAClients.has(userId)) {
       const userClient = global.userWAClients.get(userId);
       
-      // Hapus event listeners untuk mencegah memory leak
+      // Remove event listeners to prevent memory leaks
       try {
         if (userClient && userClient.ev) {
           userClient.ev.removeAllListeners('connection.update');
@@ -1718,30 +2277,58 @@ app.post('/api/qrcode', isAuthenticated, (req, res) => {
         }
       } catch (err) {
         console.log(`Error removing event listeners for user ${userId}:`, err);
-        // Lanjutkan meskipun ada error
+        // Continue even if there's an error
       }
       
-      // Hapus klien dari map
+      // Try to end the connection
+      try {
+        if (userClient && typeof userClient.end === 'function') {
+          userClient.end();
+          console.log(`Ended existing WhatsApp connection for user ${userId}`);
+        }
+      } catch (err) {
+        console.log(`Error ending WhatsApp connection for user ${userId}:`, err);
+        // Continue even if there's an error
+      }
+      
+      // Remove client from map
       global.userWAClients.delete(userId);
     }
     
-    // Hapus file sesi jika perlu untuk memastikan QR code baru
+    // Delete session files to ensure a new QR code
     try {
       const USER_SESSION_DIR = path.join(__dirname, 'sessions', `user_${userId}`);
       if (fs.existsSync(USER_SESSION_DIR)) {
-        // Hapus file kunci sesi (creds.json) untuk memaksa QR code baru
+        // Delete session key file (creds.json) to force a new QR code
         const credsFile = path.join(USER_SESSION_DIR, 'creds.json');
         if (fs.existsSync(credsFile)) {
           fs.unlinkSync(credsFile);
           console.log(`Deleted creds file for user ${userId} to generate new QR`);
         }
+        
+        // Also delete other session files that might cause issues
+        const sessionFiles = fs.readdirSync(USER_SESSION_DIR);
+        sessionFiles.forEach(file => {
+          if (file.startsWith('session-') || file.startsWith('app-state-')) {
+            try {
+              fs.unlinkSync(path.join(USER_SESSION_DIR, file));
+              console.log(`Deleted session file ${file} for user ${userId}`);
+            } catch (err) {
+              console.log(`Error deleting session file ${file} for user ${userId}:`, err);
+            }
+          }
+        });
+      } else {
+        // Create user session directory if it doesn't exist
+        fs.mkdirSync(USER_SESSION_DIR, { recursive: true });
+        console.log(`Created session directory for user ${userId}`);
       }
     } catch (err) {
-      console.log(`Error deleting session files for user ${userId}:`, err);
-      // Lanjutkan meskipun ada error
+      console.log(`Error managing session files for user ${userId}:`, err);
+      // Continue even if there's an error
     }
     
-    // Bersihkan status dan QR code lama
+    // Clean up status and old QR code
     if (global.userQRCodes) {
       global.userQRCodes.delete(userId);
     }
@@ -1752,8 +2339,8 @@ app.post('/api/qrcode', isAuthenticated, (req, res) => {
     // Update database status
     userOperations.updateWhatsAppSessionStatus(userId, false);
     
-    // Inisialisasi klien baru dengan delay untuk mencegah race condition
-    // Ini adalah satu-satunya tempat di mana kita secara eksplisit memulai koneksi WhatsApp baru
+    // Initialize new client with a delay to prevent race conditions
+    // This is the only place where we explicitly start a new WhatsApp connection
     console.log(`Explicitly initializing WhatsApp client for user ${userId} after QR code request`);
     setTimeout(() => {
       try {
@@ -1781,20 +2368,44 @@ app.get('/api/status', isAuthenticated, (req, res) => {
     
     let connectionStatusToReturn = connectionStatus;
     let qrCodeExists = false;
+    let actualSessionActive = false;
     
     if (whatsappConfig && whatsappConfig.customWhatsAppEnabled) {
+      // Check if user's WhatsApp client exists and is connected
+      const hasUserClient = global.userWAClients && global.userWAClients.has(userId);
+      const userConnStatus = global.userConnectionStatus && 
+                            global.userConnectionStatus.get(userId);
+      
       // Get user-specific connection status
-      connectionStatusToReturn = global.userConnectionStatus && global.userConnectionStatus.get(userId) || 'disconnected';
+      connectionStatusToReturn = userConnStatus || 'disconnected';
       
       // Check if QR code exists for this user
       qrCodeExists = global.userQRCodes && global.userQRCodes.has(userId) || false;
+      
+      // Determine actual session active status
+      actualSessionActive = connectionStatusToReturn === 'connected';
+      
+      console.log(`Status check for user ${userId}:`, {
+        customWhatsAppEnabled: whatsappConfig.customWhatsAppEnabled,
+        dbSessionActive: whatsappConfig.sessionActive,
+        actualSessionActive: actualSessionActive,
+        hasUserClient: hasUserClient,
+        connectionStatus: connectionStatusToReturn,
+        qrCodeExists: qrCodeExists
+      });
+      
+      // Update database if there's a mismatch
+      if (whatsappConfig.sessionActive !== actualSessionActive) {
+        console.log(`Updating WhatsApp session status for user ${userId} from ${whatsappConfig.sessionActive} to ${actualSessionActive}`);
+        userOperations.updateWhatsAppSessionStatus(userId, actualSessionActive);
+      }
     }
     
     res.json({ 
       success: true, 
       connectionStatus: connectionStatusToReturn,
       customWhatsAppEnabled: whatsappConfig ? whatsappConfig.customWhatsAppEnabled : false,
-      sessionActive: whatsappConfig ? whatsappConfig.sessionActive : false,
+      sessionActive: actualSessionActive,
       qrCodeExists: qrCodeExists
     });
   } catch (error) {
@@ -1901,9 +2512,12 @@ app.get('/webhooks', isAuthenticated, checkSubscription, (req, res) => {
       };
     });
     
+    const recipientLimit = settingsOperations.getSettingAsNumber('recipient_limit', 2);
+    
     res.render('webhooks', { 
       user: req.session.user,
       webhooks: webhooksWithRecipients,
+      recipientLimit,
       baseUrl: getBaseUrl(req),
       message: req.session.message
     });
@@ -1913,6 +2527,7 @@ app.get('/webhooks', isAuthenticated, checkSubscription, (req, res) => {
     res.render('webhooks', { 
       user: req.session.user,
       webhooks: [],
+      recipientLimit: 2,
       baseUrl: getBaseUrl(req),
       message: { type: 'danger', text: 'Error loading webhooks' }
     });
@@ -2008,12 +2623,14 @@ app.get('/webhooks/:id', isAuthenticated, (req, res) => {
     }
     
     const recipients = recipientOperations.getRecipientsByWebhookId(webhook.id);
+    const recipientLimit = settingsOperations.getSettingAsNumber('recipient_limit', 2);
     
     res.render('webhook-form', { 
       user: req.session.user,
       isNew: false,
       webhook,
       recipients,
+      recipientLimit,
       baseUrl: getBaseUrl(req),
       error: null
     });
@@ -2043,12 +2660,14 @@ app.get('/webhooks/:id/edit', isAuthenticated, (req, res) => {
     
     // Get recipients for this webhook
     const recipients = recipientOperations.getRecipientsByWebhookId(webhook.id);
+    const recipientLimit = settingsOperations.getSettingAsNumber('recipient_limit', 2);
     
     res.render('webhook-form', { 
       user: req.session.user,
       isNew: false,
       webhook,
       recipients,
+      recipientLimit,
       baseUrl: getBaseUrl(req),
       error: null
     });
@@ -2092,12 +2711,14 @@ app.post('/webhooks/:id', isAuthenticated, (req, res) => {
       } else {
         // Get recipients for this webhook
         const recipients = recipientOperations.getRecipientsByWebhookId(webhook.id);
+        const recipientLimit = settingsOperations.getSettingAsNumber('recipient_limit', 2);
         
         return res.render('webhook-form', { 
           user: req.session.user,
           isNew: false,
           webhook: { ...webhook, ...req.body },
           recipients,
+          recipientLimit,
           baseUrl: getBaseUrl(req),
           error: 'Webhook name is required'
         });
@@ -2131,12 +2752,14 @@ app.post('/webhooks/:id', isAuthenticated, (req, res) => {
     } else {
       const webhook = webhookOperations.getWebhookById(req.params.id);
       const recipients = webhook ? recipientOperations.getRecipientsByWebhookId(webhook.id) : [];
+      const recipientLimit = settingsOperations.getSettingAsNumber('recipient_limit', 2);
       
       res.render('webhook-form', { 
         user: req.session.user,
         isNew: false,
         webhook: { ...webhook, ...req.body },
         recipients,
+        recipientLimit,
         baseUrl: getBaseUrl(req),
         error: `Error updating webhook: ${error.message}`
       });
@@ -2472,6 +3095,14 @@ app.post('/api/webhook/:webhookId', checkSubscription, async (req, res) => {
       return res.status(404).json(createToastResponse(false, 'Webhook not found'));
     }
     
+    console.log(`Found webhook:`, {
+      id: webhook.id,
+      webhookId: webhook.webhook_id,
+      name: webhook.name,
+      userId: webhook.user_id,
+      formatType: webhook.format_type
+    });
+    
     const payload = req.body;
     
     // Store only the structure of the received webhook data for template customization
@@ -2504,6 +3135,20 @@ app.post('/api/webhook/:webhookId', checkSubscription, async (req, res) => {
       }
     }
     
+    // Check if user has WhatsApp configured
+    const userConfig = userOperations.getWhatsAppConfig(webhook.user_id);
+    console.log(`User WhatsApp configuration:`, {
+      userId: webhook.user_id,
+      hasConfig: !!userConfig,
+      customWhatsAppEnabled: userConfig ? userConfig.customWhatsAppEnabled : false,
+      sessionActive: userConfig ? userConfig.sessionActive : false
+    });
+    
+    // Check if user's WhatsApp is connected
+    const userConnected = global.userConnectionStatus && 
+                         global.userConnectionStatus.get(webhook.user_id) === 'connected';
+    console.log(`User WhatsApp connection status: ${userConnected ? 'connected' : 'disconnected'}`);
+    
     // Check if the payload contains a message type
     if (payload.type === 'image' && payload.imageUrl) {
       // Add image message to queue
@@ -2511,7 +3156,8 @@ app.post('/api/webhook/:webhookId', checkSubscription, async (req, res) => {
         type: 'image',
         imageUrl: payload.imageUrl,
         caption: payload.caption || '',
-        webhookId: webhook.id
+        webhookId: webhook.id,
+        userId: webhook.user_id  // Explicitly set userId
       });
     } else {
       // Format the message based on the payload structure in a more readable way
@@ -2548,7 +3194,8 @@ app.post('/api/webhook/:webhookId', checkSubscription, async (req, res) => {
       addToQueue({
         type: 'text',
         text: messageText,
-        webhookId: webhook.id
+        webhookId: webhook.id,
+        userId: webhook.user_id  // Explicitly set userId
       });
     }
     
@@ -2638,7 +3285,8 @@ app.get('/subscription', isAuthenticated, (req, res) => {
       plans,
       webhooksCount: userWebhooks.length,
       recipientsCount: totalRecipients,
-      message: req.session.message
+      message: req.session.message,
+      csrfToken: req.csrfToken()
     });
     delete req.session.message;
   } catch (error) {
@@ -2650,7 +3298,8 @@ app.get('/subscription', isAuthenticated, (req, res) => {
       plans: [],
       webhooksCount: 0,
       recipientsCount: 0,
-      message: { type: 'danger', text: 'Error loading subscription data' }
+      message: { type: 'danger', text: 'Error loading subscription data' },
+      csrfToken: req.csrfToken()
     });
   }
 });
@@ -2776,9 +3425,16 @@ app.get('/admin/plans', isAuthenticated, isAdmin, (req, res) => {
 // Create new subscription plan
 app.post('/admin/plans', isAuthenticated, isAdmin, (req, res) => {
   try {
-    const { name, duration_months, price, currency, description } = req.body;
+    const { name, duration_months, price, currency, description, payment_link } = req.body;
     
     if (!name || !duration_months || !price) {
+      // Check if this is an AJAX request
+      const isAjax = req.xhr || req.headers.accept.indexOf('json') > -1 || req.headers['content-type'] === 'application/json';
+      
+      if (isAjax) {
+        return res.json(createToastResponse(false, 'Name, duration, and price are required'));
+      }
+      
       req.session.message = {
         type: 'danger',
         text: 'Name, duration, and price are required'
@@ -2786,7 +3442,14 @@ app.post('/admin/plans', isAuthenticated, isAdmin, (req, res) => {
       return res.redirect('/admin/plans');
     }
     
-    subscriptionPlanOperations.createPlan(name, parseInt(duration_months), parseFloat(price), currency || 'USD', description || '');
+    subscriptionPlanOperations.createPlan(name, parseInt(duration_months), parseFloat(price), currency || 'USD', description || '', payment_link || '');
+    
+    // Check if this is an AJAX request
+    const isAjax = req.xhr || req.headers.accept.indexOf('json') > -1 || req.headers['content-type'] === 'application/json';
+    
+    if (isAjax) {
+      return res.json(createToastResponse(true, 'Subscription plan created successfully'));
+    }
     
     req.session.message = {
       type: 'success',
@@ -2796,6 +3459,14 @@ app.post('/admin/plans', isAuthenticated, isAdmin, (req, res) => {
     res.redirect('/admin/plans');
   } catch (error) {
     console.error('Create plan error:', error);
+    
+    // Check if this is an AJAX request
+    const isAjax = req.xhr || req.headers.accept.indexOf('json') > -1 || req.headers['content-type'] === 'application/json';
+    
+    if (isAjax) {
+      return res.json(createToastResponse(false, `Error creating plan: ${error.message}`));
+    }
+    
     req.session.message = {
       type: 'danger',
       text: `Error creating plan: ${error.message}`
@@ -2808,14 +3479,31 @@ app.post('/admin/plans', isAuthenticated, isAdmin, (req, res) => {
 app.post('/admin/plans/:id', isAuthenticated, isAdmin, (req, res) => {
   try {
     const { id } = req.params;
-    const { name, duration_months, price, currency, description, active } = req.body;
+    const { name, duration_months, price, currency, description, active, payment_link } = req.body;
     
     if (!name || !duration_months || !price) {
+      // Check if this is an AJAX request
+      const isAjax = req.xhr || req.headers.accept.indexOf('json') > -1 || req.headers['content-type'] === 'application/json';
+      
+      if (isAjax) {
+        return res.json(createToastResponse(false, 'Name, duration, and price are required'));
+      }
+      
       req.session.message = {
         type: 'danger',
         text: 'Name, duration, and price are required'
       };
       return res.redirect('/admin/plans');
+    }
+    
+    // Handle active flag correctly based on content-type
+    let isActive = false;
+    if (req.headers['content-type'] === 'application/json') {
+      // For JSON requests, use the boolean value directly
+      isActive = active === true;
+    } else {
+      // For form submissions, check for 'on' string
+      isActive = active === 'on';
     }
     
     subscriptionPlanOperations.updatePlan(
@@ -2825,8 +3513,16 @@ app.post('/admin/plans/:id', isAuthenticated, isAdmin, (req, res) => {
       parseFloat(price), 
       currency || 'USD', 
       description || '', 
-      active === 'on'
+      isActive,
+      payment_link || ''
     );
+    
+    // Check if this is an AJAX request
+    const isAjax = req.xhr || req.headers.accept.indexOf('json') > -1 || req.headers['content-type'] === 'application/json';
+    
+    if (isAjax) {
+      return res.json(createToastResponse(true, 'Subscription plan updated successfully'));
+    }
     
     req.session.message = {
       type: 'success',
@@ -2836,6 +3532,14 @@ app.post('/admin/plans/:id', isAuthenticated, isAdmin, (req, res) => {
     res.redirect('/admin/plans');
   } catch (error) {
     console.error('Update plan error:', error);
+    
+    // Check if this is an AJAX request
+    const isAjax = req.xhr || req.headers.accept.indexOf('json') > -1 || req.headers['content-type'] === 'application/json';
+    
+    if (isAjax) {
+      return res.json(createToastResponse(false, `Error updating plan: ${error.message}`));
+    }
+    
     req.session.message = {
       type: 'danger',
       text: `Error updating plan: ${error.message}`
@@ -2865,6 +3569,15 @@ app.post('/admin/plans/:id/toggle', isAuthenticated, isAdmin, (req, res) => {
     
     subscriptionPlanOperations.togglePlanStatus(id);
     
+    // Check if this is an AJAX request
+    const isAjax = req.xhr || req.headers.accept.indexOf('json') > -1 || req.headers['content-type'] === 'application/json';
+    
+    if (isAjax) {
+      // If it's an AJAX request, respond with JSON
+      return res.json(createToastResponse(true, 'Plan status updated successfully'));
+    }
+    
+    // For regular form submissions, use session flash message
     req.session.message = {
       type: 'success',
       text: 'Plan status updated successfully'
@@ -2873,11 +3586,89 @@ app.post('/admin/plans/:id/toggle', isAuthenticated, isAdmin, (req, res) => {
     res.redirect('/admin/plans');
   } catch (error) {
     console.error('Toggle plan status error:', error);
+    
+    // Check if this is an AJAX request
+    const isAjax = req.xhr || req.headers.accept.indexOf('json') > -1 || req.headers['content-type'] === 'application/json';
+    
+    if (isAjax) {
+      // If it's an AJAX request, respond with JSON
+      return res.json(createToastResponse(false, `Error updating plan status: ${error.message}`));
+    }
+    
     req.session.message = {
       type: 'danger',
       text: `Error updating plan status: ${error.message}`
     };
     res.redirect('/admin/plans');
+  }
+});
+
+// Admin settings page
+app.get('/admin/settings', isAuthenticated, isAdmin, (req, res) => {
+  try {
+    const settings = settingsOperations.getAllSettings();
+    
+    res.render('admin-settings', {
+      user: req.session.user,
+      settings,
+      message: req.session.message,
+      csrfToken: req.csrfToken()
+    });
+    delete req.session.message;
+  } catch (error) {
+    console.error('Admin settings error:', error);
+    res.render('admin-settings', {
+      user: req.session.user,
+      settings: [],
+      message: { type: 'danger', text: 'Error loading settings data' },
+      csrfToken: req.csrfToken()
+    });
+  }
+});
+
+// Update admin settings
+app.post('/admin/settings', isAuthenticated, isAdmin, (req, res) => {
+  try {
+    const { recipient_limit, message_rate_limit, trial_duration_days } = req.body;
+    
+    // Validate inputs
+    const errors = [];
+    if (!recipient_limit || recipient_limit < 1 || recipient_limit > 10) {
+      errors.push('Recipient limit must be between 1 and 10');
+    }
+    if (!message_rate_limit || message_rate_limit < 1 || message_rate_limit > 100) {
+      errors.push('Message rate limit must be between 1 and 100');
+    }
+    if (!trial_duration_days || trial_duration_days < 1 || trial_duration_days > 90) {
+      errors.push('Trial duration must be between 1 and 90 days');
+    }
+    
+    if (errors.length > 0) {
+      req.session.message = {
+        type: 'danger',
+        text: errors.join(', ')
+      };
+      return res.redirect('/admin/settings');
+    }
+    
+    // Update settings
+    settingsOperations.updateSetting('recipient_limit', recipient_limit.toString());
+    settingsOperations.updateSetting('message_rate_limit', message_rate_limit.toString());
+    settingsOperations.updateSetting('trial_duration_days', trial_duration_days.toString());
+    
+    req.session.message = {
+      type: 'success',
+      text: 'Settings updated successfully'
+    };
+    
+    res.redirect('/admin/settings');
+  } catch (error) {
+    console.error('Update settings error:', error);
+    req.session.message = {
+      type: 'danger',
+      text: `Error updating settings: ${error.message}`
+    };
+    res.redirect('/admin/settings');
   }
 });
 
@@ -2953,7 +3744,97 @@ function extractVariableStructure(data, prefix = '') {
   return variables;
 }
 
+// Admin QR code page (khusus admin, global session)
+app.get('/admin/qrcode', isAuthenticated, isAdmin, (req, res) => {
+  res.render('admin-qrcode', {
+    user: req.session.user,
+    qrCode: qrCodeDataURL,
+    connectionStatus,
+    message: req.session.message
+  });
+  delete req.session.message;
+});
 
+// Generate QR code (admin only, global session)
+app.post('/admin/api/qrcode', isAuthenticated, isAdmin, async (req, res) => {
+  try {
+    // Disconnect and reinitialize WhatsApp
+    if (waClient) {
+      waClient.end();
+      waClient = null;
+    }
+    connectionStatus = 'disconnected';
+    qrCodeDataURL = null;
+    // Initialize new connection
+    await initWhatsApp();
+    res.json(createToastResponse(true, 'QR code generation initiated'));
+  } catch (error) {
+    console.error('Error generating QR code:', error);
+    res.json(createToastResponse(false, `Error generating QR code: ${error.message}`));
+  }
+});
+
+// Logout admin WhatsApp (global session)
+app.post('/admin/whatsapp/logout', isAuthenticated, isAdmin, async (req, res) => {
+  try {
+    console.log('Admin WhatsApp logout initiated');
+    
+    // Disconnect WhatsApp client
+    if (waClient) {
+      console.log('Disconnecting WhatsApp client...');
+      try {
+        // Remove event listeners to prevent memory leaks
+        if (waClient.ev) {
+          waClient.ev.removeAllListeners('connection.update');
+          waClient.ev.removeAllListeners('creds.update');
+          waClient.ev.removeAllListeners('error');
+        }
+        
+        // End the connection
+        if (typeof waClient.end === 'function') {
+          await waClient.end();
+        }
+      } catch (err) {
+        console.log('Error during client disconnect:', err);
+        // Continue even if there's an error
+      }
+      waClient = null;
+    }
+    
+    // Update connection status
+    connectionStatus = 'disconnected';
+    qrCodeDataURL = null;
+    
+    // Delete session files from sessions directory
+    try {
+      const SESSION_DIR = path.join(__dirname, 'sessions');
+      if (fs.existsSync(SESSION_DIR)) {
+        const files = fs.readdirSync(SESSION_DIR);
+        
+        // Delete creds.json and session files
+        files.forEach(file => {
+          if (file === 'creds.json' || file.startsWith('session-') || file.startsWith('app-state-') || file.startsWith('pre-key-')) {
+            try {
+              const filePath = path.join(SESSION_DIR, file);
+              fs.unlinkSync(filePath);
+              console.log(`Deleted session file: ${file}`);
+            } catch (err) {
+              console.log(`Error deleting file ${file}:`, err);
+            }
+          }
+        });
+      }
+    } catch (err) {
+      console.log('Error deleting session files:', err);
+    }
+    
+    console.log('Admin WhatsApp logout completed successfully');
+    res.json({ success: true, message: 'Admin WhatsApp session logged out successfully' });
+  } catch (error) {
+    console.error('Error logging out admin WhatsApp:', error);
+    res.json({ success: false, message: 'Error logging out admin WhatsApp session' });
+  }
+});
 
 // Start server
 app.listen(PORT, async () => {

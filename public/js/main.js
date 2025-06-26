@@ -1,8 +1,14 @@
 // WhatsApp Webhook Manager Frontend JS
 
 document.addEventListener('DOMContentLoaded', function() {
+  // Initialize toast container
+  initToastContainer();
+  
   // Initialize emoji picker
   initEmojiPicker();
+  
+  // Initialize modals
+  initModals();
   
   // Initialize tooltips if Bootstrap is available
   if (typeof bootstrap !== 'undefined' && bootstrap.Tooltip) {
@@ -11,9 +17,6 @@ document.addEventListener('DOMContentLoaded', function() {
       return new bootstrap.Tooltip(tooltipTriggerEl);
     });
   }
-
-  // Initialize toast container
-  initToastContainer();
   
   // Create modal on page load
   createDeleteModal();
@@ -30,6 +33,23 @@ document.addEventListener('DOMContentLoaded', function() {
       console.error('Error parsing flash message:', error);
     }
   }
+
+  // Helper function to get CSRF token
+  window.getCSRFToken = function() {
+    // First try to get token from form input
+    const tokenInput = document.querySelector('input[name="_csrf"]');
+    if (tokenInput && tokenInput.value) {
+      return tokenInput.value;
+    }
+    
+    // If not found in form, try to get from meta tag
+    const metaToken = document.querySelector('meta[name="csrf-token"]');
+    if (metaToken && metaToken.content) {
+      return metaToken.content;
+    }
+    
+    return '';
+  };
 
   // Handle test webhook button for template variables
   const testWebhookBtn = document.getElementById('test-webhook-btn');
@@ -503,6 +523,9 @@ function showToast(message, type = 'info', duration = 5000) {
   return toast;
 }
 
+// Expose showToast to window object
+window.showToast = showToast;
+
 function removeToast(toast) {
   if (!toast) return;
   
@@ -523,7 +546,7 @@ function createDeleteModal() {
   
   const modal = document.createElement('div');
   modal.id = 'deleteConfirmModal';
-  modal.className = 'fixed inset-0 z-50 hidden overflow-auto bg-black bg-opacity-50 flex items-center justify-center';
+  modal.className = 'fixed inset-0 z-50 hidden overflow-auto bg-black bg-opacity-30 backdrop-blur-sm flex items-center justify-center';
   
   modal.innerHTML = `
     <div class="bg-white rounded-lg shadow-xl max-w-md mx-auto p-6 w-full">
@@ -594,6 +617,9 @@ function openDeleteModal(message, callback) {
   }
 }
 
+// Expose openDeleteModal to window object
+window.openDeleteModal = openDeleteModal;
+
 function closeDeleteModal() {
   const modal = document.getElementById('deleteConfirmModal');
   if (!modal) return;
@@ -608,75 +634,106 @@ window.showConfirmModal = function(message, callback) {
 };
 
 // Function to handle API responses with toast notifications
-function handleApiResponse(response, successCallback, errorCallback = null) {
-  if (response.toast) {
-    showToast(response.toast.text, response.toast.type || 'info');
-  }
-  
-  if (response.success) {
-    if (successCallback) {
-      successCallback(response);
+function handleApiResponse(response) {
+  // First check if response needs to be parsed as JSON
+  if (typeof response.json === 'function') {
+    return response.json().then(data => {
+      // Show toast if toast message exists
+      if (data.toast) {
+        showToast(data.toast.text, data.toast.type || 'info');
+      }
+      return data;
+    });
+  } 
+  // If it's already a parsed JSON object
+  else {
+    // Show toast if toast message exists
+    if (response.toast) {
+      showToast(response.toast.text, response.toast.type || 'info');
     }
-  } else {
-    if (errorCallback) {
-      errorCallback(response);
-    }
+    return response;
   }
 }
 
 // Function to refresh QR code
 function refreshQRCode(instanceId) {
-  const qrContainer = document.querySelector(`.qr-container[data-instance="${instanceId}"]`);
-  if (qrContainer) {
-    qrContainer.innerHTML = '<div class="text-center"><div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div><p>Generating QR code...</p></div>';
+  const qrElement = document.getElementById(`qr-${instanceId}`);
+  const statusElement = document.getElementById(`status-${instanceId}`);
+  const refreshButton = document.querySelector(`.refresh-qr[data-instance="${instanceId}"]`);
+  
+  if (qrElement && refreshButton) {
+    // Show loading state
+    qrElement.innerHTML = '<div class="flex justify-center items-center h-64"><div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-green-500"></div></div>';
+    refreshButton.disabled = true;
     
     fetch(`/api/instance/${instanceId}/qr`, {
-      method: 'POST'
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'CSRF-Token': window.getCSRFToken()
+      }
     })
-    .then(response => response.json())
+    .then(handleApiResponse)
     .then(data => {
-      handleApiResponse(data, 
-        () => {
-          // Success callback
-          window.location.href = `/instance/${instanceId}/qr`;
-        },
-        () => {
-          // Error callback
-          qrContainer.innerHTML = `<div class="alert alert-danger">${data.message}</div>`;
+      if (data.success && data.qrCode) {
+        qrElement.innerHTML = `<img src="${data.qrCode}" class="mx-auto" alt="WhatsApp QR Code">`;
+        if (statusElement) {
+          statusElement.textContent = 'QR Code ready';
+          statusElement.className = 'text-sm text-yellow-600';
         }
-      );
+      } else {
+        qrElement.innerHTML = '<div class="text-center p-4 bg-red-100 text-red-700 rounded">Failed to generate QR code.</div>';
+        if (data.message) {
+          showToast(data.message, 'error');
+        }
+      }
     })
     .catch(error => {
-      qrContainer.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
+      console.error('Error refreshing QR code:', error);
+      qrElement.innerHTML = '<div class="text-center p-4 bg-red-100 text-red-700 rounded">Error refreshing QR code.</div>';
+      showToast('Error refreshing QR code', 'error');
+    })
+    .finally(() => {
+      refreshButton.disabled = false;
     });
   }
 }
 
 // Function to refresh instance status
 function refreshStatus(instanceId) {
-  const statusElement = document.querySelector(`.instance-status[data-instance="${instanceId}"]`);
-  if (statusElement) {
-    const originalText = statusElement.innerHTML;
-    statusElement.innerHTML = 'Checking...';
+  const statusElement = document.getElementById(`status-${instanceId}`);
+  const refreshButton = document.querySelector(`.refresh-status[data-instance="${instanceId}"]`);
+  
+  if (statusElement && refreshButton) {
+    // Show loading state
+    const originalText = statusElement.textContent;
+    statusElement.textContent = 'Checking...';
+    refreshButton.disabled = true;
     
     fetch(`/api/instance/${instanceId}/status`)
-    .then(response => response.json())
+    .then(handleApiResponse)
     .then(data => {
-      handleApiResponse(data,
-        () => {
-          // Success callback
-          statusElement.innerHTML = data.status;
-          statusElement.className = `instance-status status-${data.status.toLowerCase()}`;
-        },
-        () => {
-          // Error callback
-          statusElement.innerHTML = originalText;
+      if (data.success) {
+        statusElement.textContent = data.status;
+        
+        // Update status color
+        if (data.status === 'connected') {
+          statusElement.className = 'text-sm text-green-600';
+        } else if (data.status === 'disconnected') {
+          statusElement.className = 'text-sm text-red-600';
+        } else {
+          statusElement.className = 'text-sm text-yellow-600';
         }
-      );
+      } else {
+        statusElement.textContent = originalText;
+      }
     })
     .catch(error => {
-      statusElement.innerHTML = originalText;
-      showToast(`Error: ${error.message}`, 'danger');
+      console.error('Error refreshing status:', error);
+      statusElement.textContent = originalText;
+    })
+    .finally(() => {
+      refreshButton.disabled = false;
     });
   }
 }
@@ -684,24 +741,33 @@ function refreshStatus(instanceId) {
 // Function to delete an instance
 function deleteInstance(instanceId) {
   fetch(`/api/instance/${instanceId}`, {
-    method: 'DELETE'
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+      'CSRF-Token': window.getCSRFToken()
+    }
   })
-  .then(response => response.json())
+  .then(handleApiResponse)
   .then(data => {
-    handleApiResponse(data,
-      () => {
-        // Success callback
-        const instanceElement = document.querySelector(`.instance-item[data-instance="${instanceId}"]`);
-        if (instanceElement) {
-          instanceElement.remove();
-        } else {
-          window.location.reload();
-        }
+    if (data.success) {
+      // Only show toast if the API response doesn't include a toast message
+      if (!data.toast) {
+        showToast('WhatsApp instance deleted successfully', 'success');
       }
-    );
+      // Reload page after a short delay
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
+    } else {
+      // Only show toast if the API response doesn't include a toast message
+      if (!data.toast) {
+        showToast(data.message || 'Failed to delete WhatsApp instance', 'error');
+      }
+    }
   })
   .catch(error => {
-    showToast(`Error: ${error.message}`, 'danger');
+    console.error('Error deleting instance:', error);
+    showToast('An error occurred while deleting the WhatsApp instance', 'error');
   });
 }
 
@@ -710,33 +776,36 @@ function addInstance(name, recipientNumber, webhookPath) {
   fetch('/api/instance', {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      'CSRF-Token': window.getCSRFToken()
     },
     body: JSON.stringify({
-      name,
-      recipientNumber,
-      webhookPath
+      name: name,
+      recipientNumber: recipientNumber,
+      webhookPath: webhookPath
     })
   })
-  .then(response => response.json())
+  .then(handleApiResponse)
   .then(data => {
-    handleApiResponse(data,
-      () => {
-        // Success callback
-        window.location.href = '/instances';
-      },
-      () => {
-        // Error callback
-        const errorElement = document.getElementById('add-instance-error');
-        if (errorElement) {
-          errorElement.textContent = data.message;
-          errorElement.style.display = 'block';
-        }
+    if (data.success) {
+      // Only show toast if the API response doesn't include a toast message
+      if (!data.toast) {
+        showToast('WhatsApp instance created successfully', 'success');
       }
-    );
+      // Reload page after a short delay
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
+    } else {
+      // Only show toast if the API response doesn't include a toast message
+      if (!data.toast) {
+        showToast(data.message || 'Failed to create WhatsApp instance', 'error');
+      }
+    }
   })
   .catch(error => {
-    showToast(`Error: ${error.message}`, 'danger');
+    console.error('Error adding instance:', error);
+    showToast('An error occurred while creating the WhatsApp instance', 'error');
   });
 }
 
@@ -785,121 +854,151 @@ document.addEventListener('DOMContentLoaded', function() {
 // Function to delete a webhook
 function deleteWebhook(webhookId) {
   fetch(`/api/webhooks/${webhookId}`, {
-    method: 'DELETE'
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+      'CSRF-Token': window.getCSRFToken()
+    }
   })
-  .then(response => response.json())
+  .then(handleApiResponse)
   .then(data => {
-    handleApiResponse(data,
-      () => {
-        // Success callback
-        const webhookElement = document.querySelector(`.webhook-item[data-id="${webhookId}"]`);
-        if (webhookElement) {
-          webhookElement.remove();
-        } else {
-          window.location.reload();
-        }
+    if (data.success) {
+      // Only show toast if the API response doesn't include a toast message
+      if (!data.toast) {
+        showToast('Webhook deleted successfully', 'success');
       }
-    );
+      // Reload page after a short delay
+      setTimeout(() => {
+        window.location.href = '/webhooks';
+      }, 1500);
+    } else {
+      // Only show toast if the API response doesn't include a toast message
+      if (!data.toast) {
+        showToast(data.message || 'Failed to delete webhook', 'error');
+      }
+    }
   })
   .catch(error => {
-    showToast(`Error: ${error.message}`, 'danger');
+    console.error('Error deleting webhook:', error);
+    showToast('An error occurred while deleting the webhook', 'error');
   });
 }
 
 // Function to delete a recipient
 function deleteRecipient(recipientId) {
   fetch(`/api/recipients/${recipientId}`, {
-    method: 'DELETE'
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+      'CSRF-Token': window.getCSRFToken()
+    }
   })
-  .then(response => response.json())
+  .then(handleApiResponse)
   .then(data => {
-    handleApiResponse(data,
-      () => {
-        // Success callback
-        const recipientElement = document.querySelector(`.recipient-item[data-id="${recipientId}"]`);
-        if (recipientElement) {
-          recipientElement.remove();
-        } else {
-          window.location.reload();
-        }
+    if (data.success) {
+      // Only show toast if the API response doesn't include a toast message
+      if (!data.toast) {
+        showToast('Recipient deleted successfully', 'success');
       }
-    );
+      // Reload page after a short delay
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
+    } else {
+      // Only show toast if the API response doesn't include a toast message
+      if (!data.toast) {
+        showToast(data.message || 'Failed to delete recipient', 'error');
+      }
+    }
   })
   .catch(error => {
-    showToast(`Error: ${error.message}`, 'danger');
+    console.error('Error deleting recipient:', error);
+    showToast('An error occurred while deleting the recipient', 'error');
   });
 }
 
 // Function to delete a subscription plan
 function deletePlan(planId) {
   fetch(`/admin/plans/${planId}`, {
-    method: 'DELETE'
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+      'CSRF-Token': window.getCSRFToken()
+    }
   })
-  .then(response => response.json())
+  .then(handleApiResponse)
   .then(data => {
-    handleApiResponse(data,
-      () => {
-        // Success callback
-        const planElement = document.querySelector(`.plan-item[data-id="${planId}"]`);
-        if (planElement) {
-          planElement.remove();
-        } else {
-          window.location.reload();
-        }
+    if (data.success) {
+      // Only show toast if the API response doesn't include a toast message
+      if (!data.toast) {
+        showToast('Plan deleted successfully', 'success');
       }
-    );
+      // Reload page after a short delay
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
+    } else {
+      // Only show toast if the API response doesn't include a toast message
+      if (!data.toast) {
+        showToast(data.message || 'Failed to delete plan', 'error');
+      }
+    }
   })
   .catch(error => {
-    showToast(`Error: ${error.message}`, 'danger');
+    console.error('Error deleting plan:', error);
+    showToast('An error occurred while deleting the plan', 'error');
   });
 }
 
 // Function to send a test webhook and extract variables
 function sendTestWebhook(webhookId) {
-  const statusSpan = document.getElementById('webhook-test-status');
-  if (statusSpan) {
-    statusSpan.textContent = 'Mengambil struktur variabel...';
-    statusSpan.className = 'ml-2 text-sm text-blue-500';
+  // Show loading state
+  const testWebhookBtn = document.getElementById('test-webhook-btn');
+  const statusElement = document.getElementById('webhook-test-status');
+  const originalText = testWebhookBtn.textContent;
+  
+  testWebhookBtn.textContent = 'Loading...';
+  testWebhookBtn.disabled = true;
+  
+  if (statusElement) {
+    statusElement.textContent = 'Getting variables...';
+    statusElement.className = 'ml-2 text-sm text-blue-500';
   }
-
-  // Fetch the structure of the last received webhook
+  
   fetch(`/api/webhook/${webhookId}/test`, {
-    method: 'POST',
+    method: 'GET',
     headers: {
       'Content-Type': 'application/json',
-      'Accept': 'application/json'
+      'CSRF-Token': window.getCSRFToken()
     }
   })
-  .then(response => response.json())
+  .then(handleApiResponse)
   .then(data => {
-    if (data.success && data.variableStructure) {
-      if (statusSpan) {
-        statusSpan.textContent = `Variabel terdeteksi! Webhook terakhir diterima pada ${new Date(data.receivedAt).toLocaleString()}`;
-        statusSpan.className = 'ml-2 text-sm text-green-500';
+    if (data.success && data.variables) {
+      // Create draggable variables
+      createDraggableVariables(data.variables);
+      
+      if (statusElement) {
+        statusElement.textContent = 'Variables loaded successfully';
+        statusElement.className = 'ml-2 text-sm text-green-500';
       }
-      
-      // Create draggable variables from the structure
-      createDraggableVariables(data.variableStructure);
-      
-      showToast('Struktur variabel berhasil diambil!', 'success');
     } else {
-      if (statusSpan) {
-        statusSpan.textContent = data.toast?.text || 'Tidak ada data webhook tersedia.';
-        statusSpan.className = 'ml-2 text-sm text-red-500';
+      if (statusElement) {
+        statusElement.textContent = data.message || 'No webhook data available. Send a test webhook first.';
+        statusElement.className = 'ml-2 text-sm text-red-500';
       }
-      
-      showToast(data.toast?.text || 'Tidak ada data webhook tersedia. Silakan kirim webhook terlebih dahulu.', 'warning');
     }
   })
   .catch(error => {
-    console.error('Error fetching webhook structure:', error);
-    
-    if (statusSpan) {
-      statusSpan.textContent = 'Error mengambil struktur variabel.';
-      statusSpan.className = 'ml-2 text-sm text-red-500';
+    console.error('Error fetching webhook variables:', error);
+    if (statusElement) {
+      statusElement.textContent = 'Error loading variables';
+      statusElement.className = 'ml-2 text-sm text-red-500';
     }
-    
-    showToast('Error mengambil struktur variabel', 'danger');
+  })
+  .finally(() => {
+    testWebhookBtn.textContent = originalText;
+    testWebhookBtn.disabled = false;
   });
 }
 
@@ -1029,7 +1128,7 @@ function sendWebhookTest(webhookId) {
   try {
     payload = JSON.parse(payloadTextarea.value);
   } catch (error) {
-    showToast('JSON tidak valid. Periksa kembali format JSON Anda.', 'danger');
+    showToast('JSON tidak valid. Periksa kembali format JSON Anda.', 'error');
     if (statusSpan) {
       statusSpan.textContent = 'JSON tidak valid';
       statusSpan.className = 'ml-3 text-sm text-red-500';
@@ -1047,11 +1146,11 @@ function sendWebhookTest(webhookId) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Accept': 'application/json'
+      'CSRF-Token': window.getCSRFToken()
     },
     body: JSON.stringify(payload)
   })
-  .then(response => response.json())
+  .then(handleApiResponse)
   .then(data => {
     if (data.success) {
       if (statusSpan) {
@@ -1059,14 +1158,20 @@ function sendWebhookTest(webhookId) {
         statusSpan.className = 'ml-3 text-sm text-green-500';
       }
       
-      showToast('Webhook berhasil dikirim! Klik "Ambil Variabel dari Webhook Terakhir" untuk melihat variabel.', 'success');
+      // Only show toast if the API response doesn't include a toast message
+      if (!data.toast) {
+        showToast('Webhook berhasil dikirim! Klik "Ambil Variabel dari Webhook Terakhir" untuk melihat variabel.', 'success');
+      }
     } else {
       if (statusSpan) {
-        statusSpan.textContent = data.toast?.text || 'Gagal mengirim webhook';
+        statusSpan.textContent = data.message || 'Gagal mengirim webhook';
         statusSpan.className = 'ml-3 text-sm text-red-500';
       }
       
-      showToast(data.toast?.text || 'Gagal mengirim webhook', 'danger');
+      // Only show toast if the API response doesn't include a toast message
+      if (!data.toast) {
+        showToast(data.message || 'Gagal mengirim webhook', 'error');
+      }
     }
   })
   .catch(error => {
@@ -1077,7 +1182,7 @@ function sendWebhookTest(webhookId) {
       statusSpan.className = 'ml-3 text-sm text-red-500';
     }
     
-    showToast('Error mengirim webhook', 'danger');
+    showToast('Error mengirim webhook', 'error');
   });
 }
 
@@ -1202,4 +1307,39 @@ function initEmojiPicker() {
       }
     });
   }
+}
+
+// Initialize modals function
+function initModals() {
+  // Find all modal overlays
+  const modalOverlays = document.querySelectorAll('[id$="ModalOverlay"]');
+  
+  modalOverlays.forEach(overlay => {
+    // Make sure the modal is properly hidden initially
+    if (overlay.classList.contains('flex')) {
+      overlay.classList.remove('flex');
+    }
+    
+    if (!overlay.classList.contains('hidden')) {
+      overlay.classList.add('hidden');
+    }
+    
+    // Add click event to close modal when clicking outside
+    overlay.addEventListener('click', function(e) {
+      if (e.target === overlay) {
+        // Find the close function based on the modal ID
+        const modalId = overlay.id;
+        const baseName = modalId.replace('ModalOverlay', '');
+        const closeFunction = window[`close${baseName.charAt(0).toUpperCase() + baseName.slice(1)}Modal`];
+        
+        if (typeof closeFunction === 'function') {
+          closeFunction();
+        } else {
+          // Fallback to just hiding the modal
+          overlay.classList.add('hidden');
+          document.body.style.overflow = '';
+        }
+      }
+    });
+  });
 }

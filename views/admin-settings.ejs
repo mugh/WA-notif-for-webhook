@@ -1,0 +1,166 @@
+<%- include('partials/header') %>
+
+<div class="container mx-auto px-4 py-6">
+  <div class="flex justify-between items-center mb-6">
+    <h2 class="text-2xl font-bold">System Settings</h2>
+    <a href="/dashboard" class="bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded transition-colors">
+      <i class="fas fa-arrow-left mr-2"></i> Back to Dashboard
+    </a>
+  </div>
+  
+  <% if (typeof message !== 'undefined' && message) { %>
+    <% 
+      let alertClass = "bg-blue-100 border-blue-500 text-blue-700";
+      if (message.type === 'success') {
+        alertClass = "bg-green-100 border-green-500 text-green-700";
+      } else if (message.type === 'danger') {
+        alertClass = "bg-red-100 border-red-500 text-red-700";
+      } else if (message.type === 'warning') {
+        alertClass = "bg-yellow-100 border-yellow-500 text-yellow-700";
+      }
+    %>
+    <div class="<%= alertClass %> px-4 py-3 rounded border-l-4 mb-6">
+      <%= message.text %>
+    </div>
+  <% } %>
+  
+  <div class="bg-white rounded-lg shadow overflow-hidden">
+    <div class="bg-gray-100 px-4 py-3 border-b">
+      <h5 class="font-medium flex items-center">
+        <i class="fas fa-cog mr-2"></i> System Configuration
+      </h5>
+    </div>
+    
+    <form action="/admin/settings" method="POST" class="p-6">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      
+      <!-- Recipient Limit Setting -->
+      <div class="mb-6">
+        <label for="recipient_limit" class="block text-sm font-medium text-gray-700 mb-2">
+          Recipient Limit per Webhook
+        </label>
+        <div class="flex items-center">
+          <input type="number" 
+                 id="recipient_limit" 
+                 name="recipient_limit" 
+                 value="<%= settings.find(s => s.setting_key === 'recipient_limit')?.setting_value || '2' %>"
+                 min="1" 
+                 max="10"
+                 class="w-24 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+          <span class="ml-2 text-gray-600">recipients per webhook</span>
+        </div>
+        <p class="mt-1 text-sm text-gray-500">
+          Maximum number of recipients that can be added to each webhook. Current users will be affected immediately.
+        </p>
+      </div>
+      
+      <!-- Message Rate Limit Setting -->
+      <div class="mb-6">
+        <label for="message_rate_limit" class="block text-sm font-medium text-gray-700 mb-2">
+          Message Rate Limit
+        </label>
+        <div class="flex items-center">
+          <input type="number" 
+                 id="message_rate_limit" 
+                 name="message_rate_limit" 
+                 value="<%= settings.find(s => s.setting_key === 'message_rate_limit')?.setting_value || '20' %>"
+                 min="1" 
+                 max="100"
+                 class="w-24 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+          <span class="ml-2 text-gray-600">messages per hour per recipient</span>
+        </div>
+        <p class="mt-1 text-sm text-gray-500">
+          Maximum number of messages that can be sent to each recipient per hour to prevent spam.
+        </p>
+      </div>
+      
+      <!-- Trial Duration Setting -->
+      <div class="mb-6">
+        <label for="trial_duration_days" class="block text-sm font-medium text-gray-700 mb-2">
+          Trial Duration
+        </label>
+        <div class="flex items-center">
+          <input type="number" 
+                 id="trial_duration_days" 
+                 name="trial_duration_days" 
+                 value="<%= settings.find(s => s.setting_key === 'trial_duration_days')?.setting_value || '14' %>"
+                 min="1" 
+                 max="90"
+                 class="w-24 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+          <span class="ml-2 text-gray-600">days</span>
+        </div>
+        <p class="mt-1 text-sm text-gray-500">
+          Number of days for the free trial period. Only affects new users.
+        </p>
+      </div>
+      
+      <div class="flex items-center justify-between pt-4 border-t border-gray-200">
+        <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white py-2 px-6 rounded transition-colors">
+          <i class="fas fa-save mr-2"></i> Save Settings
+        </button>
+        <a href="/admin/dashboard" class="text-gray-600 hover:text-gray-800">
+          Cancel
+        </a>
+      </div>
+    </form>
+  </div>
+  
+  <!-- Current System Status -->
+  <div class="mt-6 bg-white rounded-lg shadow overflow-hidden">
+    <div class="bg-gray-100 px-4 py-3 border-b">
+      <h5 class="font-medium flex items-center">
+        <i class="fas fa-info-circle mr-2"></i> Current System Status
+      </h5>
+    </div>
+    <div class="p-6">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="bg-blue-50 p-4 rounded-lg">
+          <h6 class="font-medium text-blue-800 mb-2">Recipient Limit</h6>
+          <p class="text-2xl font-bold text-blue-600">
+            <%= settings.find(s => s.setting_key === 'recipient_limit')?.setting_value || '2' %>
+          </p>
+          <p class="text-sm text-blue-600">per webhook</p>
+        </div>
+        
+        <div class="bg-green-50 p-4 rounded-lg">
+          <h6 class="font-medium text-green-800 mb-2">Rate Limit</h6>
+          <p class="text-2xl font-bold text-green-600">
+            <%= settings.find(s => s.setting_key === 'message_rate_limit')?.setting_value || '20' %>
+          </p>
+          <p class="text-sm text-green-600">messages/hour</p>
+        </div>
+        
+        <div class="bg-yellow-50 p-4 rounded-lg">
+          <h6 class="font-medium text-yellow-800 mb-2">Trial Period</h6>
+          <p class="text-2xl font-bold text-yellow-600">
+            <%= settings.find(s => s.setting_key === 'trial_duration_days')?.setting_value || '14' %>
+          </p>
+          <p class="text-sm text-yellow-600">days</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script nonce="<%= nonce %>">
+document.addEventListener('DOMContentLoaded', function() {
+  const form = document.querySelector('form');
+  
+  form.addEventListener('submit', function(e) {
+    const submitButton = form.querySelector('button[type="submit"]');
+    const originalText = submitButton.innerHTML;
+    
+    // Disable button and show loading state
+    submitButton.disabled = true;
+    submitButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Saving...';
+    
+    // Re-enable after a delay if there's an error
+    setTimeout(() => {
+      submitButton.disabled = false;
+      submitButton.innerHTML = originalText;
+    }, 5000);
+  });
+});
+</script>
+
+<%- include('partials/footer') %> 

@@ -84,7 +84,10 @@
                     <%= new Date(user.created_at).toLocaleDateString() %>
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <button class="inline-flex items-center bg-blue-600 hover:bg-blue-700 text-white text-xs py-1 px-2 rounded transition-colors" onclick="openSubscriptionModal('<%= user.id %>', '<%= user.username %>', '<%= user.subscription_status %>')">
+                    <button type="button" class="manage-subscription-btn inline-flex items-center bg-blue-600 hover:bg-blue-700 text-white text-xs py-1 px-2 rounded transition-colors" 
+                      data-user-id="<%= user.id %>" 
+                      data-username="<%= user.username %>" 
+                      data-status="<%= user.subscription_status %>">
                       <i class="fas fa-edit mr-1"></i> Manage
                     </button>
                   </td>
@@ -103,156 +106,293 @@
 </div>
 
 <!-- Subscription Management Modal -->
-<div id="subscriptionModalOverlay" class="fixed inset-0 bg-black bg-opacity-50 z-40 hidden flex items-center justify-center">
-  <div class="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
-    <div class="flex items-center justify-between bg-gray-100 px-4 py-3 border-b rounded-t-lg">
-      <h5 class="font-medium text-lg" id="subscriptionModalLabel">Manage Subscription</h5>
-      <button type="button" class="text-gray-400 hover:text-gray-500" onclick="closeSubscriptionModal()">
-        <i class="fas fa-times"></i>
-      </button>
-    </div>
-    <form id="subscriptionForm" method="POST">
-      <div class="p-4">
-        <div class="mb-4">
-          <label for="username" class="block text-sm font-medium text-gray-700 mb-1">User:</label>
-          <input type="text" class="w-full border-gray-300 rounded-md shadow-sm bg-gray-50" id="username" readonly>
-        </div>
-        
-        <div class="mb-4">
-          <label for="status" class="block text-sm font-medium text-gray-700 mb-1">Subscription Status:</label>
-          <select class="w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500" id="status" name="status" required>
-            <option value="trial">Trial</option>
-            <option value="active">Active</option>
-            <option value="expired">Expired</option>
-          </select>
-        </div>
-        
-        <div class="mb-4" id="monthsGroup">
-          <label for="months" class="block text-sm font-medium text-gray-700 mb-1">Duration (for Active status):</label>
-          <select class="w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500" id="months" name="months">
-            <option value="">-- Select Duration --</option>
-            <% if (plans && plans.length > 0) { %>
-              <% plans.forEach(plan => { %>
-                <option value="<%= plan.duration_months %>" data-price="<%= plan.price %>" data-currency="<%= plan.currency %>">
-                  <%= plan.name %> - <%= plan.currency %> <%= plan.price %>
-                </option>
-              <% }); %>
-            <% } else { %>
-              <option value="1">1 Month</option>
-              <option value="3">3 Months</option>
-              <option value="6">6 Months</option>
-              <option value="12">12 Months</option>
+<div id="subscriptionModalOverlay" class="fixed inset-0 bg-black bg-opacity-30 backdrop-blur-sm z-40 hidden">
+  <div class="flex items-center justify-center h-full w-full">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
+      <div class="flex items-center justify-between bg-gray-100 px-4 py-3 border-b rounded-t-lg">
+        <h5 class="font-medium text-lg" id="subscriptionModalLabel">Manage Subscription</h5>
+        <button type="button" class="text-gray-400 hover:text-gray-500" id="close-subscription-modal-btn">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+      <form id="subscriptionForm" method="POST">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <div class="p-4">
+          <div class="mb-4">
+            <label for="username" class="block text-sm font-medium text-gray-700 mb-1">User:</label>
+            <input type="text" class="w-full border-gray-300 rounded-md shadow-sm bg-gray-50" id="username" readonly>
+          </div>
+          
+          <div class="mb-4">
+            <label for="status" class="block text-sm font-medium text-gray-700 mb-1">Subscription Status:</label>
+            <select class="w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500" id="status" name="status" required>
+              <option value="trial">Trial</option>
+              <option value="active">Active</option>
+              <option value="expired">Expired</option>
+            </select>
+          </div>
+          
+          <div class="mb-4" id="monthsGroup">
+            <label for="months" class="block text-sm font-medium text-gray-700 mb-1">Duration (for Active status):</label>
+            <select class="w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500" id="months" name="months">
+              <option value="">-- Select Duration --</option>
+              <% if (plans && plans.length > 0) { %>
+                <% console.log('Available plans:', plans); %>
+                <% plans.forEach(plan => { %>
+                  <option value="<%= plan.duration_months %>" data-price="<%= plan.price %>" data-currency="<%= plan.currency %>" data-description="<%= plan.description || '' %>">
+                    <%= plan.name %> - <%= plan.currency %> <%= plan.price %>
+                    <% if (plan.description && plan.description.includes('Save')) { %>
+                      (<%= plan.description.match(/Save \d+%/)[0] %>)
+                    <% } %>
+                  </option>
+                <% }); %>
+              <% } else { %>
+                <% console.log('No plans found, using fallback options'); %>
+                <option value="1">1 Month - $9.99</option>
+                <option value="3">3 Months - $24.99 (Save 17%)</option>
+                <option value="6">6 Months - $44.99 (Save 25%)</option>
+                <option value="12">12 Months - $79.99 (Save 33%)</option>
+              <% } %>
+            </select>
+            <p class="mt-1 text-sm text-gray-500">Only required when setting status to Active.</p>
+            <% if (!plans || plans.length === 0) { %>
+              <p class="mt-1 text-sm text-yellow-600">
+                <i class="fas fa-exclamation-triangle mr-1"></i> 
+                No subscription plans found in database. Using default options.
+              </p>
             <% } %>
-          </select>
-          <p class="mt-1 text-sm text-gray-500">Only required when setting status to Active.</p>
-        </div>
-        
-        <div id="planInfo" class="mb-4" style="display: none;">
-          <div class="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-3 rounded">
-            <i class="fas fa-info-circle mr-1"></i> 
-            <span id="planInfoText"></span>
+          </div>
+          
+          <div id="planInfo" class="mb-4" style="display: none;">
+            <div class="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-3 rounded">
+              <i class="fas fa-info-circle mr-1"></i> 
+              <span id="planInfoText"></span>
+            </div>
           </div>
         </div>
-      </div>
-      <div class="bg-gray-50 px-4 py-3 flex justify-end space-x-3 rounded-b-lg">
-        <button type="button" class="bg-gray-500 hover:bg-gray-600 text-white py-2 px-4 rounded transition-colors" onclick="closeSubscriptionModal()">Cancel</button>
-        <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded transition-colors">Update Subscription</button>
-      </div>
-    </form>
+        <div class="bg-gray-50 px-4 py-3 flex justify-end space-x-3 rounded-b-lg">
+          <button type="button" class="bg-gray-500 hover:bg-gray-600 text-white py-2 px-4 rounded transition-colors" id="cancel-subscription-btn">Cancel</button>
+          <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded transition-colors">Update Subscription</button>
+        </div>
+      </form>
+    </div>
   </div>
 </div>
 
-<script>
+<script nonce="<%= nonce %>">
 let currentUserId = null;
+
+// Helper function to get CSRF token
+window.getCSRFToken = function() {
+  // First try to get token from form input
+  const tokenInput = document.querySelector('input[name="_csrf"]');
+  if (tokenInput && tokenInput.value) {
+    return tokenInput.value;
+  }
+  
+  // If not found in form, try to get from meta tag
+  const metaToken = document.querySelector('meta[name="csrf-token"]');
+  if (metaToken && metaToken.content) {
+    return metaToken.content;
+  }
+  
+  return '';
+};
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', function() {
+  console.log('Admin subscriptions page initialized');
+  
   // Listen for status changes
-  document.getElementById('status').addEventListener('change', toggleMonthsField);
+  const statusSelect = document.getElementById('status');
+  if (statusSelect) {
+    statusSelect.addEventListener('change', toggleMonthsField);
+  } else {
+    console.error('Status select element not found');
+  }
   
   // Listen for months/plan changes
-  document.getElementById('months').addEventListener('change', function() {
-    const selectedOption = this.options[this.selectedIndex];
-    const planInfo = document.getElementById('planInfo');
-    const planInfoText = document.getElementById('planInfoText');
-    
-    if (this.value && selectedOption.dataset.price) {
-      const planName = selectedOption.textContent;
-      const price = selectedOption.dataset.price;
-      const currency = selectedOption.dataset.currency;
+  const monthsSelect = document.getElementById('months');
+  if (monthsSelect) {
+    monthsSelect.addEventListener('change', function() {
+      const selectedOption = this.options[this.selectedIndex];
+      const planInfo = document.getElementById('planInfo');
+      const planInfoText = document.getElementById('planInfoText');
       
-      planInfoText.textContent = `Selected: ${planName} - Total: ${currency} ${price}`;
-      planInfo.style.display = 'block';
-    } else {
-      planInfo.style.display = 'none';
-    }
-  });
+      if (this.value && selectedOption && selectedOption.dataset.price) {
+        const planName = selectedOption.textContent;
+        const price = selectedOption.dataset.price;
+        const currency = selectedOption.dataset.currency;
+        const description = selectedOption.dataset.description;
+        
+        let infoText = `Selected: ${planName} - Total: ${currency} ${price}`;
+        if (description) {
+          infoText += ` - ${description}`;
+        }
+        
+        planInfoText.textContent = infoText;
+        planInfo.style.display = 'block';
+      } else {
+        planInfo.style.display = 'none';
+      }
+    });
+  } else {
+    console.error('Months select element not found');
+  }
   
   // Initialize
   toggleMonthsField();
   
   // Form validation
-  document.getElementById('subscriptionForm').addEventListener('submit', function(e) {
-    const status = document.getElementById('status').value;
-    const months = document.getElementById('months').value;
-    
-    if (status === 'active' && !months) {
-      e.preventDefault();
-      alert('Please select duration for active subscription');
-      return false;
-    }
-  });
+  const subscriptionForm = document.getElementById('subscriptionForm');
+  if (subscriptionForm) {
+    subscriptionForm.addEventListener('submit', function(e) {
+      const status = document.getElementById('status').value;
+      const months = document.getElementById('months').value;
+      
+      if (status === 'active' && !months) {
+        e.preventDefault();
+        showToast('Please select duration for active subscription', 'warning');
+        return false;
+      }
+    });
+  } else {
+    console.error('Subscription form not found');
+  }
+  
+  // Manage subscription buttons
+  const manageSubscriptionBtns = document.querySelectorAll('.manage-subscription-btn');
+  if (manageSubscriptionBtns.length > 0) {
+    manageSubscriptionBtns.forEach(button => {
+      button.addEventListener('click', function() {
+        const userId = this.getAttribute('data-user-id');
+        const username = this.getAttribute('data-username');
+        const currentStatus = this.getAttribute('data-status');
+        
+        openSubscriptionModal(userId, username, currentStatus);
+      });
+    });
+  }
+  
+  // Close modal buttons
+  const closeSubscriptionModalBtn = document.getElementById('close-subscription-modal-btn');
+  if (closeSubscriptionModalBtn) {
+    closeSubscriptionModalBtn.addEventListener('click', closeSubscriptionModal);
+  }
+  
+  const cancelSubscriptionBtn = document.getElementById('cancel-subscription-btn');
+  if (cancelSubscriptionBtn) {
+    cancelSubscriptionBtn.addEventListener('click', closeSubscriptionModal);
+  }
   
   // Close modal when clicking outside of it
   const modalOverlay = document.getElementById('subscriptionModalOverlay');
-  modalOverlay.addEventListener('click', function(e) {
-    if (e.target === modalOverlay) {
-      closeSubscriptionModal();
-    }
-  });
+  if (modalOverlay) {
+    modalOverlay.addEventListener('click', function(e) {
+      if (e.target === modalOverlay) {
+        closeSubscriptionModal();
+      }
+    });
+  } else {
+    console.error('Modal overlay not found');
+  }
 });
 
 function openSubscriptionModal(userId, username, currentStatus) {
-  currentUserId = userId;
-  document.getElementById('username').value = username;
-  document.getElementById('status').value = currentStatus;
-  
-  // Update form action
-  document.getElementById('subscriptionForm').action = `/admin/subscriptions/${userId}`;
-  
-  // Reset plan selection and info
-  document.getElementById('months').value = '';
-  document.getElementById('planInfo').style.display = 'none';
-  
-  // Show/hide months field based on status
-  toggleMonthsField();
-  
-  // Show modal
-  const modalOverlay = document.getElementById('subscriptionModalOverlay');
-  modalOverlay.classList.remove('hidden');
-  // Prevent scrolling when modal is open
-  document.body.style.overflow = 'hidden';
+  try {
+    console.log('Opening modal for user:', userId, username, currentStatus);
+    currentUserId = userId;
+    
+    // Get DOM elements
+    const usernameInput = document.getElementById('username');
+    const statusSelect = document.getElementById('status');
+    const subscriptionForm = document.getElementById('subscriptionForm');
+    const monthsSelect = document.getElementById('months');
+    const planInfo = document.getElementById('planInfo');
+    const modalOverlay = document.getElementById('subscriptionModalOverlay');
+    
+    // Check if elements exist
+    if (!usernameInput || !statusSelect || !subscriptionForm || !monthsSelect || !planInfo || !modalOverlay) {
+      console.error('One or more modal elements not found');
+      showToast('Error opening modal: UI elements not found', 'error');
+      return;
+    }
+    
+    // Set form values
+    usernameInput.value = username;
+    statusSelect.value = currentStatus;
+    
+    // Update form action
+    subscriptionForm.action = `/admin/subscriptions/${userId}`;
+    
+    // Reset plan selection and info
+    monthsSelect.value = '';
+    planInfo.style.display = 'none';
+    
+    // Show/hide months field based on status
+    toggleMonthsField();
+    
+    // Show modal
+    modalOverlay.classList.remove('hidden');
+    
+    // Prevent scrolling when modal is open
+    document.body.style.overflow = 'hidden';
+  } catch (error) {
+    console.error('Error in openSubscriptionModal:', error);
+    showToast('Error opening subscription modal: ' + error.message, 'error');
+  }
 }
 
 function closeSubscriptionModal() {
-  const modalOverlay = document.getElementById('subscriptionModalOverlay');
-  modalOverlay.classList.add('hidden');
-  // Re-enable scrolling
-  document.body.style.overflow = '';
+  try {
+    const modalOverlay = document.getElementById('subscriptionModalOverlay');
+    if (!modalOverlay) {
+      console.error('Modal overlay not found');
+      return;
+    }
+    modalOverlay.classList.add('hidden');
+    // Re-enable scrolling
+    document.body.style.overflow = '';
+  } catch (error) {
+    console.error('Error in closeSubscriptionModal:', error);
+  }
 }
 
 function toggleMonthsField() {
-  const status = document.getElementById('status').value;
-  const monthsGroup = document.getElementById('monthsGroup');
-  const monthsField = document.getElementById('months');
+  try {
+    const status = document.getElementById('status').value;
+    const monthsGroup = document.getElementById('monthsGroup');
+    const monthsField = document.getElementById('months');
+    
+    if (!status || !monthsGroup || !monthsField) {
+      console.error('Status or months elements not found');
+      return;
+    }
+    
+    if (status === 'active') {
+      monthsGroup.style.display = 'block';
+      monthsField.required = true;
+    } else {
+      monthsGroup.style.display = 'none';
+      monthsField.required = false;
+      monthsField.value = '';
+    }
+  } catch (error) {
+    console.error('Error in toggleMonthsField:', error);
+  }
+}
+
+// Function to show a confirmation modal
+function showConfirmModal(message, callback) {
+  // Use the global confirm modal if available
+  if (typeof window.openDeleteModal === 'function') {
+    window.openDeleteModal(message, callback);
+    return;
+  }
   
-  if (status === 'active') {
-    monthsGroup.style.display = 'block';
-    monthsField.required = true;
-  } else {
-    monthsGroup.style.display = 'none';
-    monthsField.required = false;
-    monthsField.value = '';
+  // Fallback to browser confirm
+  if (confirm(message)) {
+    callback();
   }
 }
 </script>

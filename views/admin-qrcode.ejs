@@ -1,25 +1,25 @@
 <%- include('partials/header') %>
 
 <div class="flex justify-between items-center my-6">
-  <h2 class="text-2xl font-bold">WhatsApp QR Code</h2>
+  <h2 class="text-2xl font-bold">Admin WhatsApp QR Code</h2>
   <a href="/dashboard" class="inline-flex items-center bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded transition-colors">
-    <i class="fas fa-arrow-left mr-2"></i> Back to Dashboard
+    <i class="fas fa-arrow-left mr-2"></i> Back to Admin Dashboard
   </a>
 </div>
 
 <div class="bg-white rounded-lg shadow overflow-hidden">
   <div class="bg-gray-100 px-4 py-3 border-b">
-    <h5 class="font-medium">Scan QR Code with WhatsApp</h5>
+    <h5 class="font-medium">Scan QR Code with WhatsApp (Admin Session)</h5>
   </div>
   <div class="p-6 text-center">
     <input type="hidden" name="_csrf" value="<%= csrfToken %>">
     <% if (connectionStatus === 'connected') { %>
       <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 rounded mb-4">
-        <i class="fas fa-check-circle mr-2"></i> WhatsApp is already connected!
+        <i class="fas fa-check-circle mr-2"></i> Admin WhatsApp is already connected!
       </div>
-      <p class="mb-4">You can disconnect and reconnect with a new QR code if needed.</p>
+      <p class="mb-4">This is the global WhatsApp session for the system. You can disconnect and reconnect with a new QR code if needed.</p>
       <button id="logout_whatsapp" class="inline-flex items-center bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded transition-colors">
-        <i class="fas fa-unlink mr-2"></i> Disconnect
+        <i class="fas fa-unlink mr-2"></i> Disconnect Admin WhatsApp
       </button>
     <% } else if (connectionStatus === 'timeout') { %>
       <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded mb-4">
@@ -31,16 +31,16 @@
           <i class="fas fa-qrcode mr-2"></i> Generate New QR Code
         </button>
         <a href="/dashboard" class="inline-flex items-center bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded transition-colors">
-          <i class="fas fa-arrow-left mr-2"></i> Back to Dashboard
+          <i class="fas fa-arrow-left mr-2"></i> Back to Admin Dashboard
         </a>
       </div>
     <% } else if (qrCode) { %>
       <div class="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 rounded mb-4">
-        <strong class="font-bold">Important:</strong> Scan this QR code with your WhatsApp app to connect.
+        <strong class="font-bold">Important:</strong> Scan this QR code with your WhatsApp app to connect the admin session.
       </div>
       
       <div class="qr-code mx-auto max-w-xs">
-        <img src="<%= qrCode %>" alt="WhatsApp QR Code" class="w-full">
+        <img src="<%= qrCode %>" alt="Admin WhatsApp QR Code" class="w-full">
       </div>
       
       <div id="timeout-message" class="mt-4 mb-2 text-red-600" style="display: none;">
@@ -54,17 +54,17 @@
           <i class="fas fa-sync-alt mr-2"></i> Refresh QR Code
         </button>
         <a href="/dashboard" class="inline-flex items-center bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded transition-colors">
-          <i class="fas fa-arrow-left mr-2"></i> Back to Dashboard
+          <i class="fas fa-arrow-left mr-2"></i> Back to Admin Dashboard
         </a>
       </div>
     <% } else { %>
-      <p class="mb-4">Click the button below to generate a QR code for WhatsApp connection:</p>
+      <p class="mb-4">Click the button below to generate a QR code for admin WhatsApp connection:</p>
       <div class="flex space-x-3 justify-center">
         <button id="generate-qr" class="inline-flex items-center bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded transition-colors">
           <i class="fas fa-qrcode mr-2"></i> Generate QR Code
         </button>
         <a href="/dashboard" class="inline-flex items-center bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded transition-colors">
-          <i class="fas fa-arrow-left mr-2"></i> Back to Dashboard
+          <i class="fas fa-arrow-left mr-2"></i> Back to Admin Dashboard
         </a>
       </div>
       <div id="loading" class="mt-4" style="display: none;">
@@ -190,7 +190,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (generateQrBtn) generateQrBtn.disabled = true;
     if (refreshQrBtn) refreshQrBtn.disabled = true;
     
-    fetch('/api/qrcode', {
+    fetch('/admin/api/qrcode', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -231,8 +231,8 @@ document.addEventListener('DOMContentLoaded', function() {
   
   if (logoutButton) {
     logoutButton.addEventListener('click', function() {
-      if (confirm('Are you sure you want to logout from WhatsApp? This will disconnect your current session.')) {
-        fetch('/whatsapp/logout', {
+      if (confirm('Are you sure you want to logout from admin WhatsApp? This will disconnect the global session.')) {
+        fetch('/admin/whatsapp/logout', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -242,12 +242,12 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(response => response.json())
         .then(data => {
           if (data.success) {
-            showToast('WhatsApp session logged out successfully', 'success');
+            showToast('Admin WhatsApp session logged out successfully', 'success');
             setTimeout(() => {
               window.location.href = '/dashboard';
             }, 1500);
           } else {
-            showToast(data.message || 'Failed to logout WhatsApp session', 'error');
+            showToast(data.message || 'Failed to logout admin WhatsApp session', 'error');
           }
         })
         .catch(error => {
@@ -269,7 +269,6 @@ document.addEventListener('DOMContentLoaded', function() {
       })
         .then(response => response.json())
         .then(data => {
-          console.log('Status check:', data);
           if (data.connectionStatus === 'connected') {
             clearInterval(checkStatus);
             window.location.href = '/dashboard';

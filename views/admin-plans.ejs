@@ -3,25 +3,9 @@
 <div class="container mx-auto px-4 py-6">
   <h2 class="text-2xl font-bold mb-6">Manage Subscription Plans</h2>
   
-  <% if (typeof message !== 'undefined' && message) { %>
-    <% 
-      let alertClass = "bg-blue-100 border-blue-500 text-blue-700";
-      if (message.type === 'success') {
-        alertClass = "bg-green-100 border-green-500 text-green-700";
-      } else if (message.type === 'danger') {
-        alertClass = "bg-red-100 border-red-500 text-red-700";
-      } else if (message.type === 'warning') {
-        alertClass = "bg-yellow-100 border-yellow-500 text-yellow-700";
-      }
-    %>
-    <div class="<%= alertClass %> px-4 py-3 rounded border-l-4 mb-6">
-      <%= message.text %>
-    </div>
-  <% } %>
-  
   <!-- Add New Plan Button -->
   <div class="mb-6">
-    <button class="inline-flex items-center bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded transition-colors" onclick="openPlanModal('new')">
+    <button type="button" class="inline-flex items-center bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded transition-colors" id="add-new-plan-btn">
       <i class="fas fa-plus mr-2"></i> Add New Plan
     </button>
   </div>
@@ -40,6 +24,7 @@
                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Duration</th>
                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Price</th>
                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Payment Link</th>
                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
@@ -53,6 +38,15 @@
                   <td class="px-6 py-4 whitespace-nowrap"><%= plan.currency %> <%= plan.price %></td>
                   <td class="px-6 py-4 whitespace-nowrap"><%= plan.description || '-' %></td>
                   <td class="px-6 py-4 whitespace-nowrap">
+                    <% if (plan.payment_link) { %>
+                      <a href="<%= plan.payment_link %>" target="_blank" class="text-blue-600 hover:text-blue-800 text-sm">
+                        <i class="fas fa-external-link-alt mr-1"></i>View Link
+                      </a>
+                    <% } else { %>
+                      <span class="text-gray-400 text-sm">-</span>
+                    <% } %>
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap">
                     <% if (plan.active) { %>
                       <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">Active</span>
                     <% } else { %>
@@ -64,16 +58,26 @@
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     <div class="flex space-x-2">
-                      <button class="inline-flex items-center bg-blue-600 hover:bg-blue-700 text-white text-xs py-1 px-2 rounded transition-colors" onclick="openPlanModal('edit', '<%= plan.id %>', '<%= plan.name %>', '<%= plan.duration_months %>', '<%= plan.price %>', '<%= plan.currency %>', '<%= plan.description || '' %>', '<%= plan.active %>')">
+                      <button type="button" class="edit-plan-btn inline-flex items-center bg-blue-600 hover:bg-blue-700 text-white text-xs py-1 px-2 rounded transition-colors" 
+                        data-id="<%= plan.id %>" 
+                        data-name="<%= plan.name %>" 
+                        data-duration="<%= plan.duration_months %>" 
+                        data-price="<%= plan.price %>" 
+                        data-currency="<%= plan.currency %>" 
+                        data-description="<%= plan.description || '' %>" 
+                        data-payment-link="<%= plan.payment_link || '' %>"
+                        data-active="<%= plan.active %>">
                         <i class="fas fa-edit mr-1"></i> Edit
                       </button>
-                      <form method="POST" action="/admin/plans/<%= plan.id %>/toggle" class="inline-block">
-                        <button type="submit" class="inline-flex items-center <%= plan.active ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-green-600 hover:bg-green-700' %> text-white text-xs py-1 px-2 rounded transition-colors">
-                          <i class="fas fa-<%= plan.active ? 'pause' : 'play' %> mr-1"></i> 
-                          <%= plan.active ? 'Deactivate' : 'Activate' %>
-                        </button>
-                      </form>
-                      <button class="inline-flex items-center bg-red-600 hover:bg-red-700 text-white text-xs py-1 px-2 rounded transition-colors" onclick="deletePlan('<%= plan.id %>', '<%= plan.name %>')">
+                      <button type="button" class="toggle-plan-btn inline-flex items-center <%= plan.active ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-green-600 hover:bg-green-700' %> text-white text-xs py-1 px-2 rounded transition-colors"
+                        data-id="<%= plan.id %>"
+                        data-active="<%= plan.active %>">
+                        <i class="fas fa-<%= plan.active ? 'pause' : 'play' %> mr-1"></i> 
+                        <%= plan.active ? 'Deactivate' : 'Activate' %>
+                      </button>
+                      <button type="button" class="delete-plan inline-flex items-center bg-red-600 hover:bg-red-700 text-white text-xs py-1 px-2 rounded transition-colors"
+                        data-id="<%= plan.id %>" 
+                        data-name="<%= plan.name %>">
                         <i class="fas fa-trash mr-1"></i> Delete
                       </button>
                     </div>
@@ -93,155 +97,350 @@
 </div>
 
 <!-- Plan Management Modal -->
-<div id="planModalOverlay" class="fixed inset-0 bg-black bg-opacity-50 z-40 hidden flex items-center justify-center">
-  <div class="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
-    <div class="flex items-center justify-between bg-gray-100 px-4 py-3 border-b rounded-t-lg">
-      <h5 class="font-medium text-lg" id="planModalLabel">Add New Plan</h5>
-      <button type="button" class="text-gray-400 hover:text-gray-500" onclick="closePlanModal()">
-        <i class="fas fa-times"></i>
-      </button>
+<div id="planModalOverlay" class="fixed inset-0 bg-black bg-opacity-30 backdrop-blur-sm z-40 hidden">
+  <div class="flex items-center justify-center h-full w-full">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
+      <div class="flex items-center justify-between bg-gray-100 px-4 py-3 border-b rounded-t-lg">
+        <h5 class="font-medium text-lg" id="planModalLabel">Add New Plan</h5>
+        <button type="button" class="text-gray-400 hover:text-gray-500" id="close-plan-modal-btn">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+      <form id="planForm" method="POST" action="/admin/plans" onsubmit="submitPlanForm(event)">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <div class="p-4">
+          <div class="mb-4">
+            <label for="name" class="block text-sm font-medium text-gray-700 mb-1">Plan Name:</label>
+            <input type="text" class="w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500" id="name" name="name" required>
+          </div>
+          
+          <div class="mb-4">
+            <label for="duration_months" class="block text-sm font-medium text-gray-700 mb-1">Duration (Months):</label>
+            <input type="number" class="w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500" id="duration_months" name="duration_months" min="1" required>
+          </div>
+          
+          <div class="grid grid-cols-12 gap-4">
+            <div class="col-span-8">
+              <div class="mb-4">
+                <label for="price" class="block text-sm font-medium text-gray-700 mb-1">Price:</label>
+                <input type="number" class="w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500" id="price" name="price" step="0.01" min="0" required>
+              </div>
+            </div>
+            <div class="col-span-4">
+              <div class="mb-4">
+                <label for="currency" class="block text-sm font-medium text-gray-700 mb-1">Currency:</label>
+                <select class="w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500" id="currency" name="currency">
+                  <option value="USD">USD</option>
+                  <option value="EUR">EUR</option>
+                  <option value="GBP">GBP</option>
+                  <option value="IDR">IDR</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          
+          <div class="mb-4">
+            <label for="description" class="block text-sm font-medium text-gray-700 mb-1">Description:</label>
+            <textarea class="w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500" id="description" name="description" rows="3"></textarea>
+          </div>
+          
+          <div class="mb-4">
+            <label for="payment_link" class="block text-sm font-medium text-gray-700 mb-1">Payment Link:</label>
+            <input type="url" class="w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500" id="payment_link" name="payment_link" placeholder="https://example.com/payment">
+            <p class="mt-1 text-sm text-gray-500">Link to payment gateway or payment page for this plan</p>
+          </div>
+          
+          <div class="mb-4" id="activeGroup" style="display: none;">
+            <div class="flex items-center">
+              <input type="checkbox" class="h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300 rounded" id="active" name="active">
+              <label class="ml-2 block text-sm text-gray-700" for="active">
+                Active
+              </label>
+            </div>
+          </div>
+        </div>
+        <div class="bg-gray-50 px-4 py-3 flex justify-end space-x-3 rounded-b-lg">
+          <button type="button" class="bg-gray-500 hover:bg-gray-600 text-white py-2 px-4 rounded transition-colors" id="cancel-plan-btn">Cancel</button>
+          <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded transition-colors" id="submitBtn">Add Plan</button>
+        </div>
+      </form>
     </div>
-    <form id="planForm" method="POST" action="/admin/plans">
-      <div class="p-4">
-        <div class="mb-4">
-          <label for="name" class="block text-sm font-medium text-gray-700 mb-1">Plan Name:</label>
-          <input type="text" class="w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500" id="name" name="name" required>
-        </div>
-        
-        <div class="mb-4">
-          <label for="duration_months" class="block text-sm font-medium text-gray-700 mb-1">Duration (Months):</label>
-          <input type="number" class="w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500" id="duration_months" name="duration_months" min="1" required>
-        </div>
-        
-        <div class="grid grid-cols-12 gap-4">
-          <div class="col-span-8">
-            <div class="mb-4">
-              <label for="price" class="block text-sm font-medium text-gray-700 mb-1">Price:</label>
-              <input type="number" class="w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500" id="price" name="price" step="0.01" min="0" required>
-            </div>
-          </div>
-          <div class="col-span-4">
-            <div class="mb-4">
-              <label for="currency" class="block text-sm font-medium text-gray-700 mb-1">Currency:</label>
-              <select class="w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500" id="currency" name="currency">
-                <option value="USD">USD</option>
-                <option value="EUR">EUR</option>
-                <option value="GBP">GBP</option>
-                <option value="IDR">IDR</option>
-              </select>
-            </div>
-          </div>
-        </div>
-        
-        <div class="mb-4">
-          <label for="description" class="block text-sm font-medium text-gray-700 mb-1">Description:</label>
-          <textarea class="w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500" id="description" name="description" rows="3"></textarea>
-        </div>
-        
-        <div class="mb-4" id="activeGroup" style="display: none;">
-          <div class="flex items-center">
-            <input type="checkbox" class="h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300 rounded" id="active" name="active">
-            <label class="ml-2 block text-sm text-gray-700" for="active">
-              Active
-            </label>
-          </div>
-        </div>
-      </div>
-      <div class="bg-gray-50 px-4 py-3 flex justify-end space-x-3 rounded-b-lg">
-        <button type="button" class="bg-gray-500 hover:bg-gray-600 text-white py-2 px-4 rounded transition-colors" onclick="closePlanModal()">Cancel</button>
-        <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded transition-colors" id="submitBtn">Add Plan</button>
-      </div>
-    </form>
   </div>
 </div>
 
-<script>
+<script nonce="<%= nonce %>">
 let currentMode = 'new';
 
-function openPlanModal(mode, id = null, name = '', duration = '', price = '', currency = 'USD', description = '', active = true) {
-  currentMode = mode;
-  
-  // Update modal title and form action
-  const modalTitle = document.getElementById('planModalLabel');
-  const planForm = document.getElementById('planForm');
-  const submitBtn = document.getElementById('submitBtn');
-  const activeGroup = document.getElementById('activeGroup');
-  const modalOverlay = document.getElementById('planModalOverlay');
-  
-  if (mode === 'new') {
-    modalTitle.textContent = 'Add New Plan';
-    planForm.action = '/admin/plans';
-    submitBtn.textContent = 'Add Plan';
-    activeGroup.style.display = 'none';
-    
-    // Clear form
-    document.getElementById('name').value = '';
-    document.getElementById('duration_months').value = '';
-    document.getElementById('price').value = '';
-    document.getElementById('currency').value = 'USD';
-    document.getElementById('description').value = '';
-  } else {
-    modalTitle.textContent = 'Edit Plan';
-    planForm.action = `/admin/plans/${id}`;
-    submitBtn.textContent = 'Update Plan';
-    activeGroup.style.display = 'block';
-    
-    // Fill form
-    document.getElementById('name').value = name;
-    document.getElementById('duration_months').value = duration;
-    document.getElementById('price').value = price;
-    document.getElementById('currency').value = currency;
-    document.getElementById('description').value = description;
-    document.getElementById('active').checked = active === 'true' || active === true;
+// Helper function to get CSRF token
+window.getCSRFToken = function() {
+  // First try to get token from form input
+  const tokenInput = document.querySelector('input[name="_csrf"]');
+  if (tokenInput && tokenInput.value) {
+    return tokenInput.value;
   }
   
-  // Show modal
-  modalOverlay.classList.remove('hidden');
-  // Prevent scrolling when modal is open
-  document.body.style.overflow = 'hidden';
+  // If not found in form, try to get from meta tag
+  const metaToken = document.querySelector('meta[name="csrf-token"]');
+  if (metaToken && metaToken.content) {
+    return metaToken.content;
+  }
+  
+  return '';
+};
+
+function openPlanModal(mode, id = null, name = '', duration = '', price = '', currency = 'USD', description = '', paymentLink = '', active = true) {
+  try {
+    console.log('Opening plan modal:', mode, id);
+    currentMode = mode;
+    
+    // Update modal title and form action
+    const modalTitle = document.getElementById('planModalLabel');
+    const planForm = document.getElementById('planForm');
+    const submitBtn = document.getElementById('submitBtn');
+    const activeGroup = document.getElementById('activeGroup');
+    const modalOverlay = document.getElementById('planModalOverlay');
+    
+    // Form field elements
+    const nameInput = document.getElementById('name');
+    const durationInput = document.getElementById('duration_months');
+    const priceInput = document.getElementById('price');
+    const currencySelect = document.getElementById('currency');
+    const descriptionInput = document.getElementById('description');
+    const paymentLinkInput = document.getElementById('payment_link');
+    const activeCheckbox = document.getElementById('active');
+    
+    // Check if all elements exist
+    if (!modalTitle || !planForm || !submitBtn || !activeGroup || !modalOverlay || 
+        !nameInput || !durationInput || !priceInput || !currencySelect || !descriptionInput || !paymentLinkInput || !activeCheckbox) {
+      console.error('One or more modal elements not found');
+      showToast('Error opening modal: UI elements not found', 'error');
+      return;
+    }
+    
+    if (mode === 'new') {
+      modalTitle.textContent = 'Add New Plan';
+      planForm.action = '/admin/plans';
+      submitBtn.textContent = 'Add Plan';
+      activeGroup.style.display = 'none';
+      
+      // Clear form
+      nameInput.value = '';
+      durationInput.value = '';
+      priceInput.value = '';
+      currencySelect.value = 'USD';
+      descriptionInput.value = '';
+      paymentLinkInput.value = '';
+    } else {
+      modalTitle.textContent = 'Edit Plan';
+      planForm.action = `/admin/plans/${id}`;
+      submitBtn.textContent = 'Update Plan';
+      activeGroup.style.display = 'block';
+      
+      // Fill form
+      nameInput.value = name;
+      durationInput.value = duration;
+      priceInput.value = price;
+      currencySelect.value = currency;
+      descriptionInput.value = description;
+      paymentLinkInput.value = paymentLink;
+      activeCheckbox.checked = active === 'true' || active === true;
+    }
+    
+    // Show modal
+    modalOverlay.classList.remove('hidden');
+    // Prevent scrolling when modal is open
+    document.body.style.overflow = 'hidden';
+  } catch (error) {
+    console.error('Error in openPlanModal:', error);
+    showToast('Error opening plan modal: ' + error.message, 'error');
+  }
 }
 
 function closePlanModal() {
-  const modalOverlay = document.getElementById('planModalOverlay');
-  modalOverlay.classList.add('hidden');
-  // Re-enable scrolling
-  document.body.style.overflow = '';
+  try {
+    const modalOverlay = document.getElementById('planModalOverlay');
+    if (!modalOverlay) {
+      console.error('Modal overlay not found');
+      return;
+    }
+    modalOverlay.classList.add('hidden');
+    // Re-enable scrolling
+    document.body.style.overflow = '';
+  } catch (error) {
+    console.error('Error in closePlanModal:', error);
+  }
 }
 
-function deletePlan(id, name) {
-  showConfirmModal(`Are you sure you want to delete the plan "${name}"? This action cannot be undone.`, function() {
-    fetch(`/admin/plans/${id}`, {
-      method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json'
+// Function to toggle plan active status
+function togglePlanStatus(planId, isActive) {
+  fetch(`/admin/plans/${planId}/toggle`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'CSRF-Token': getCSRFToken()
+    },
+    body: JSON.stringify({ _csrf: getCSRFToken() })
+  })
+  .then(response => {
+    if (response.redirected) {
+      // Server handles the redirect and toast, just follow the redirect
+      window.location.href = response.url;
+      return null; // Prevent further processing
+    } else {
+      return response.json();
+    }
+  })
+  .then(data => {
+    if (data === null) return; // Skip if redirected
+    
+    if (data && data.success) {
+      // Only show toast if server didn't handle it via redirect
+      if (data.toast && data.toast.text) {
+        showToast(data.toast.text, data.toast.type || 'success');
       }
-    })
-    .then(response => response.json())
-    .then(data => {
-      if (data.success) {
-        showToast('Plan deleted successfully', 'success');
-        location.reload();
-      } else {
-        showToast(data.message || 'Error deleting plan', 'error');
-      }
-    })
-    .catch(error => {
-      console.error('Error:', error);
-      showToast('Error deleting plan', 'error');
-    });
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
+    } else if (data) {
+      // Show error toast only if no redirect occurred
+      const errorMessage = data.toast?.text || data.message || 'Failed to update plan status';
+      showToast(errorMessage, data.toast?.type || 'error');
+    }
+  })
+  .catch(error => {
+    console.error('Error toggling plan status:', error);
+    showToast('An error occurred while updating plan status', 'error');
   });
 }
 
-// Close modal when clicking outside of it
-document.addEventListener('DOMContentLoaded', function() {
-  const modalOverlay = document.getElementById('planModalOverlay');
-  const modalContent = modalOverlay.querySelector('.bg-white');
+// Function to submit plan form via AJAX
+function submitPlanForm(event) {
+  event.preventDefault();
   
-  modalOverlay.addEventListener('click', function(e) {
-    if (e.target === modalOverlay) {
-      closePlanModal();
+  const form = document.getElementById('planForm');
+  const formData = new FormData(form);
+  const formAction = form.getAttribute('action');
+  
+  // Convert FormData to JSON
+  const jsonData = {};
+  formData.forEach((value, key) => {
+    if (key === 'active') {
+      jsonData[key] = true; // Checkbox is only included when checked
+    } else {
+      jsonData[key] = value;
     }
   });
+  
+  // Add active=false if checkbox is not checked and we're in edit mode
+  if (currentMode === 'edit' && !formData.has('active')) {
+    jsonData.active = false;
+  }
+  
+  fetch(formAction, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'CSRF-Token': getCSRFToken()
+    },
+    body: JSON.stringify(jsonData)
+  })
+  .then(response => {
+    if (response.redirected) {
+      // Server handles the redirect and toast, just follow the redirect
+      window.location.href = response.url;
+      return null; // Prevent further processing
+    } else {
+      return response.json();
+    }
+  })
+  .then(data => {
+    if (data === null) return; // Skip if redirected
+    
+    if (data && data.success) {
+      // Only show toast if server didn't handle it via redirect
+      if (data.toast && data.toast.text) {
+        showToast(data.toast.text, data.toast.type || 'success');
+      }
+      closePlanModal();
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
+    } else if (data) {
+      // Show error toast only if no redirect occurred
+      const errorMessage = data.toast?.text || data.message || 'Failed to save plan';
+      showToast(errorMessage, data.toast?.type || 'error');
+    }
+  })
+  .catch(error => {
+    console.error('Error submitting plan form:', error);
+    showToast('An error occurred while saving the plan', 'error');
+  });
+}
+
+// Initialize event handlers
+document.addEventListener('DOMContentLoaded', function() {
+  console.log('Admin plans page initialized');
+  
+  // Add New Plan button
+  const addNewPlanBtn = document.getElementById('add-new-plan-btn');
+  if (addNewPlanBtn) {
+    addNewPlanBtn.addEventListener('click', function() {
+      openPlanModal('new');
+    });
+  }
+  
+  // Edit Plan buttons
+  const editPlanBtns = document.querySelectorAll('.edit-plan-btn');
+  editPlanBtns.forEach(button => {
+    button.addEventListener('click', function() {
+      const id = this.getAttribute('data-id');
+      const name = this.getAttribute('data-name');
+      const duration = this.getAttribute('data-duration');
+      const price = this.getAttribute('data-price');
+      const currency = this.getAttribute('data-currency');
+      const description = this.getAttribute('data-description');
+      const paymentLink = this.getAttribute('data-payment-link');
+      const active = this.getAttribute('data-active');
+      
+      openPlanModal('edit', id, name, duration, price, currency, description, paymentLink, active);
+    });
+  });
+  
+  // Toggle Plan Status buttons
+  const togglePlanBtns = document.querySelectorAll('.toggle-plan-btn');
+  togglePlanBtns.forEach(button => {
+    button.addEventListener('click', function() {
+      const id = this.getAttribute('data-id');
+      const isActive = this.getAttribute('data-active') === 'true';
+      
+      togglePlanStatus(id, isActive);
+    });
+  });
+  
+  // Close modal buttons
+  const closePlanModalBtn = document.getElementById('close-plan-modal-btn');
+  if (closePlanModalBtn) {
+    closePlanModalBtn.addEventListener('click', closePlanModal);
+  }
+  
+  const cancelPlanBtn = document.getElementById('cancel-plan-btn');
+  if (cancelPlanBtn) {
+    cancelPlanBtn.addEventListener('click', closePlanModal);
+  }
+  
+  // Close modal when clicking outside of it
+  const modalOverlay = document.getElementById('planModalOverlay');
+  if (modalOverlay) {
+    modalOverlay.addEventListener('click', function(e) {
+      if (e.target === modalOverlay) {
+        closePlanModal();
+      }
+    });
+  } else {
+    console.error('Plan modal overlay not found');
+  }
 });
 </script>
 

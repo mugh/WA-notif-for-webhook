@@ -197,6 +197,75 @@ function migrateUserTableEmail() {
   }
 }
 
+// Function to create and migrate settings table
+function migrateSettingsTable() {
+  try {
+    // Check if settings table exists
+    const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='settings'").get();
+    
+    if (!tableExists) {
+      console.log('Creating settings table');
+      db.prepare(`
+        CREATE TABLE settings (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          setting_key TEXT UNIQUE NOT NULL,
+          setting_value TEXT NOT NULL,
+          description TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `).run();
+      
+      // Insert default settings
+      const defaultSettings = [
+        {
+          key: 'recipient_limit',
+          value: '2',
+          description: 'Maximum number of recipients allowed per webhook'
+        },
+        {
+          key: 'message_rate_limit',
+          value: '20',
+          description: 'Maximum messages per hour per recipient'
+        },
+        {
+          key: 'trial_duration_days',
+          value: '14',
+          description: 'Trial period duration in days'
+        }
+      ];
+      
+      const insertStmt = db.prepare(`
+        INSERT INTO settings (setting_key, setting_value, description) 
+        VALUES (?, ?, ?)
+      `);
+      
+      defaultSettings.forEach(setting => {
+        insertStmt.run(setting.key, setting.value, setting.description);
+      });
+      
+      console.log('Settings table created with default values');
+    } else {
+      console.log('Settings table already exists');
+    }
+  } catch (error) {
+    console.error('Error migrating settings table:', error);
+  }
+}
+
+// Function to migrate subscription plans table to add payment_link column
+function migrateSubscriptionPlansTable() {
+  try {
+    // Check if payment_link column exists
+    if (!columnExists('subscription_plans', 'payment_link')) {
+      console.log('Migrating subscription_plans table: Adding payment_link column');
+      db.prepare('ALTER TABLE subscription_plans ADD COLUMN payment_link TEXT').run();
+    }
+  } catch (error) {
+    console.error('Error migrating subscription_plans table:', error);
+  }
+}
+
 // Create tables if they don't exist
 function initializeDatabase() {
   // Users table
@@ -285,11 +354,15 @@ function initializeDatabase() {
       price DECIMAL(10,2) NOT NULL,
       currency TEXT NOT NULL DEFAULT 'USD',
       description TEXT,
+      payment_link TEXT,
       active BOOLEAN NOT NULL DEFAULT 1,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `).run();
+
+  // Check if payment_link column exists in subscription_plans table, if not add it
+  migrateSubscriptionPlansTable();
 
   // Insert default subscription plans if table is empty
   const planCount = db.prepare('SELECT COUNT(*) as count FROM subscription_plans').get();
@@ -319,6 +392,9 @@ function initializeDatabase() {
       'INSERT INTO users (username, password, email, phone_number, phone_verified, role, subscription_status) VALUES (?, ?, ?, ?, ?, ?, ?)'
     ).run('admin', 'admin123', 'admin@example.com', '+6281234567890', 1, 'admin', 'lifetime');
   }
+
+  // Create and migrate settings table
+  migrateSettingsTable();
 }
 
 // User operations
@@ -476,7 +552,7 @@ const userOperations = {
         if (user.password === password) {
           // Update to hashed password
           const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
-          this.updatePassword(user.id, hashedPassword);
+          await this.updatePassword(user.id, hashedPassword);
           return true;
         }
         return false;
@@ -593,10 +669,13 @@ const webhookOperations = {
 const recipientOperations = {
   createRecipient(webhookId, phoneNumber, name) {
     try {
-      // Check if the webhook already has 2 recipients
+      // Get recipient limit from settings (default to 2 if not set)
+      const recipientLimit = settingsOperations.getSettingAsNumber('recipient_limit', 2);
+      
+      // Check if the webhook already has the maximum allowed recipients
       const count = db.prepare('SELECT COUNT(*) as count FROM recipients WHERE webhook_id = ?').get(webhookId);
-      if (count.count >= 2) {
-        throw new Error('Maximum of 2 recipients allowed per webhook');
+      if (count.count >= recipientLimit) {
+        throw new Error(`Maximum of ${recipientLimit} recipients allowed per webhook`);
       }
 
       const stmt = db.prepare(
@@ -644,23 +723,23 @@ const subscriptionPlanOperations = {
     return db.prepare('SELECT * FROM subscription_plans WHERE id = ?').get(id);
   },
 
-  createPlan(name, durationMonths, price, currency = 'USD', description = '') {
+  createPlan(name, durationMonths, price, currency = 'USD', description = '', paymentLink = '') {
     try {
       const stmt = db.prepare(
-        'INSERT INTO subscription_plans (name, duration_months, price, currency, description) VALUES (?, ?, ?, ?, ?)'
+        'INSERT INTO subscription_plans (name, duration_months, price, currency, description, payment_link) VALUES (?, ?, ?, ?, ?, ?)'
       );
-      const result = stmt.run(name, durationMonths, price, currency, description);
+      const result = stmt.run(name, durationMonths, price, currency, description, paymentLink);
       return result.lastInsertRowid;
     } catch (error) {
       throw error;
     }
   },
 
-  updatePlan(id, name, durationMonths, price, currency, description, active) {
+  updatePlan(id, name, durationMonths, price, currency, description, active, paymentLink = '') {
     const stmt = db.prepare(
-      'UPDATE subscription_plans SET name = ?, duration_months = ?, price = ?, currency = ?, description = ?, active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+      'UPDATE subscription_plans SET name = ?, duration_months = ?, price = ?, currency = ?, description = ?, active = ?, payment_link = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
     );
-    return stmt.run(name, durationMonths, price, currency, description, active ? 1 : 0, id);
+    return stmt.run(name, durationMonths, price, currency, description, active ? 1 : 0, paymentLink, id);
   },
 
   deletePlan(id) {
@@ -746,11 +825,56 @@ const otpOperations = {
   }
 };
 
+// Settings operations
+const settingsOperations = {
+  getSetting(key) {
+    const setting = db.prepare('SELECT * FROM settings WHERE setting_key = ?').get(key);
+    return setting ? setting.setting_value : null;
+  },
+
+  getSettingAsNumber(key, defaultValue = 0) {
+    const value = this.getSetting(key);
+    return value ? parseInt(value, 10) : defaultValue;
+  },
+
+  getAllSettings() {
+    return db.prepare('SELECT * FROM settings ORDER BY setting_key').all();
+  },
+
+  updateSetting(key, value) {
+    const stmt = db.prepare(`
+      UPDATE settings 
+      SET setting_value = ?, updated_at = CURRENT_TIMESTAMP 
+      WHERE setting_key = ?
+    `);
+    return stmt.run(value, key);
+  },
+
+  createSetting(key, value, description = '') {
+    try {
+      const stmt = db.prepare(`
+        INSERT INTO settings (setting_key, setting_value, description) 
+        VALUES (?, ?, ?)
+      `);
+      const result = stmt.run(key, value, description);
+      return result.lastInsertRowid;
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  deleteSetting(key) {
+    const stmt = db.prepare('DELETE FROM settings WHERE setting_key = ?');
+    return stmt.run(key);
+  }
+};
+
 module.exports = {
   initializeDatabase,
   userOperations,
   webhookOperations,
   recipientOperations,
   subscriptionPlanOperations,
-  otpOperations
+  otpOperations,
+  settingsOperations
 }; 
