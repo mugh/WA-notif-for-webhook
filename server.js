@@ -3250,595 +3250,182 @@ app.delete('/api/recipients/:id', isAuthenticated, (req, res) => {
   }
 });
 
-// Health check endpoint
+// Health check endpoint for monitoring
 app.get('/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'ok',
-    connectionStatus,
-    queueLength: messageQueue.length,
-    recipientsCount: recipientsConfig.recipients.length,
-    activeRecipientsCount: recipientsConfig.recipients.filter(r => r.active).length
-  });
-});
-
-// Subscription page
-app.get('/subscription', isAuthenticated, (req, res) => {
-  if (req.session.user.role === 'admin') {
-    return res.redirect('/admin/subscriptions');
-  }
-  
   try {
-    const subscription = userOperations.checkUserSubscription(req.session.user.id);
-    const trialInfo = userOperations.getTrialInfo(req.session.user.id);
-    const plans = subscriptionPlanOperations.getActivePlans();
-    
-    // Get webhooks and recipients count
-    const userWebhooks = webhookOperations.getWebhooksByUserId(req.session.user.id);
-    const totalRecipients = userWebhooks.reduce((total, webhook) => {
-      return total + recipientOperations.getRecipientsByWebhookId(webhook.id).length;
-    }, 0);
-    
-    res.render('subscription', {
-      user: req.session.user,
-      subscription,
-      trialInfo,
-      plans,
-      webhooksCount: userWebhooks.length,
-      recipientsCount: totalRecipients,
-      message: req.session.message,
-      csrfToken: req.csrfToken()
-    });
-    delete req.session.message;
-  } catch (error) {
-    console.error('Subscription page error:', error);
-    res.render('subscription', {
-      user: req.session.user,
-      subscription: null,
-      trialInfo: null,
-      plans: [],
-      webhooksCount: 0,
-      recipientsCount: 0,
-      message: { type: 'danger', text: 'Error loading subscription data' },
-      csrfToken: req.csrfToken()
-    });
-  }
-});
-
-// Admin subscription management
-app.get('/admin/subscriptions', isAuthenticated, isAdmin, (req, res) => {
-  try {
-    const allUsers = userOperations.getAllUsers().filter(u => u.role !== 'admin');
-    const plans = subscriptionPlanOperations.getActivePlans();
-    
-    res.render('admin-subscriptions', {
-      user: req.session.user,
-      users: allUsers,
-      plans,
-      message: req.session.message
-    });
-    delete req.session.message;
-  } catch (error) {
-    console.error('Admin subscriptions error:', error);
-    res.render('admin-subscriptions', {
-      user: req.session.user,
-      users: [],
-      plans: [],
-      message: { type: 'danger', text: 'Error loading users data' }
-    });
-  }
-});
-
-// Update user subscription (admin only)
-app.post('/admin/subscriptions/:userId', isAuthenticated, isAdmin, (req, res) => {
-  try {
-    const userId = req.params.userId;
-    const { status, months } = req.body;
-    
-    console.log('Updating subscription:', { userId, status, months });
-    
-    let startDate = null;
-    let endDate = null;
-    
-    if (status === 'active' && months) {
-      startDate = new Date().toISOString();
-      const end = new Date();
-      end.setMonth(end.getMonth() + parseInt(months));
-      endDate = end.toISOString();
-      console.log('Setting subscription dates:', { startDate, endDate });
-    }
-    
-    const result = userOperations.updateSubscription(userId, status, startDate, endDate);
-    console.log('Update result:', result);
-    
-    req.session.message = {
-      type: 'success',
-      text: 'Subscription updated successfully'
-    };
-    
-    res.redirect('/admin/subscriptions');
-  } catch (error) {
-    console.error('Update subscription error:', error);
-    req.session.message = {
-      type: 'danger',
-      text: `Error updating subscription: ${error.message}`
-    };
-    res.redirect('/admin/subscriptions');
-  }
-});
-
-// User subscription activation
-app.post('/subscription/activate', isAuthenticated, (req, res) => {
-  try {
-    const { months } = req.body;
-    
-    if (!months || months < 1) {
-      req.session.message = {
-        type: 'danger',
-        text: 'Invalid subscription period'
-      };
-      return res.redirect('/subscription');
-    }
-    
-    const startDate = new Date().toISOString();
-    const endDate = new Date();
-    endDate.setMonth(endDate.getMonth() + parseInt(months));
-    
-    userOperations.updateSubscription(req.session.user.id, 'active', startDate, endDate.toISOString());
-    
-    req.session.message = {
-      type: 'success',
-      text: 'Subscription activated successfully!'
-    };
-    
-    res.redirect('/dashboard');
-  } catch (error) {
-    console.error('Activate subscription error:', error);
-    req.session.message = {
-      type: 'danger',
-      text: 'Error activating subscription'
-    };
-    res.redirect('/subscription');
-  }
-});
-
-// Admin subscription plans management
-app.get('/admin/plans', isAuthenticated, isAdmin, (req, res) => {
-  try {
-    const plans = subscriptionPlanOperations.getAllPlans();
-    
-    res.render('admin-plans', {
-      user: req.session.user,
-      plans,
-      message: req.session.message
-    });
-    delete req.session.message;
-  } catch (error) {
-    console.error('Admin plans error:', error);
-    res.render('admin-plans', {
-      user: req.session.user,
-      plans: [],
-      message: { type: 'danger', text: 'Error loading plans data' }
-    });
-  }
-});
-
-// Create new subscription plan
-app.post('/admin/plans', isAuthenticated, isAdmin, (req, res) => {
-  try {
-    const { name, duration_months, price, currency, description, payment_link } = req.body;
-    
-    if (!name || !duration_months || !price) {
-      // Check if this is an AJAX request
-      const isAjax = req.xhr || req.headers.accept.indexOf('json') > -1 || req.headers['content-type'] === 'application/json';
-      
-      if (isAjax) {
-        return res.json(createToastResponse(false, 'Name, duration, and price are required'));
+    const health = {
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      memory: process.memoryUsage(),
+      database: {
+        status: 'connected',
+        path: process.env.DB_PATH || './data/wawebhook.db'
+      },
+      whatsapp: {
+        status: connectionStatus,
+        lastConnected: lastConnected
+      },
+      queue: {
+        length: messageQueue.length,
+        processing: isProcessingQueue
       }
-      
-      req.session.message = {
-        type: 'danger',
-        text: 'Name, duration, and price are required'
-      };
-      return res.redirect('/admin/plans');
-    }
-    
-    subscriptionPlanOperations.createPlan(name, parseInt(duration_months), parseFloat(price), currency || 'USD', description || '', payment_link || '');
-    
-    // Check if this is an AJAX request
-    const isAjax = req.xhr || req.headers.accept.indexOf('json') > -1 || req.headers['content-type'] === 'application/json';
-    
-    if (isAjax) {
-      return res.json(createToastResponse(true, 'Subscription plan created successfully'));
-    }
-    
-    req.session.message = {
-      type: 'success',
-      text: 'Subscription plan created successfully'
     };
-    
-    res.redirect('/admin/plans');
-  } catch (error) {
-    console.error('Create plan error:', error);
-    
-    // Check if this is an AJAX request
-    const isAjax = req.xhr || req.headers.accept.indexOf('json') > -1 || req.headers['content-type'] === 'application/json';
-    
-    if (isAjax) {
-      return res.json(createToastResponse(false, `Error creating plan: ${error.message}`));
-    }
-    
-    req.session.message = {
-      type: 'danger',
-      text: `Error creating plan: ${error.message}`
-    };
-    res.redirect('/admin/plans');
-  }
-});
 
-// Update subscription plan
-app.post('/admin/plans/:id', isAuthenticated, isAdmin, (req, res) => {
-  try {
-    const { id } = req.params;
-    const { name, duration_months, price, currency, description, active, payment_link } = req.body;
-    
-    if (!name || !duration_months || !price) {
-      // Check if this is an AJAX request
-      const isAjax = req.xhr || req.headers.accept.indexOf('json') > -1 || req.headers['content-type'] === 'application/json';
-      
-      if (isAjax) {
-        return res.json(createToastResponse(false, 'Name, duration, and price are required'));
-      }
-      
-      req.session.message = {
-        type: 'danger',
-        text: 'Name, duration, and price are required'
-      };
-      return res.redirect('/admin/plans');
-    }
-    
-    // Handle active flag correctly based on content-type
-    let isActive = false;
-    if (req.headers['content-type'] === 'application/json') {
-      // For JSON requests, use the boolean value directly
-      isActive = active === true;
-    } else {
-      // For form submissions, check for 'on' string
-      isActive = active === 'on';
-    }
-    
-    subscriptionPlanOperations.updatePlan(
-      id, 
-      name, 
-      parseInt(duration_months), 
-      parseFloat(price), 
-      currency || 'USD', 
-      description || '', 
-      isActive,
-      payment_link || ''
-    );
-    
-    // Check if this is an AJAX request
-    const isAjax = req.xhr || req.headers.accept.indexOf('json') > -1 || req.headers['content-type'] === 'application/json';
-    
-    if (isAjax) {
-      return res.json(createToastResponse(true, 'Subscription plan updated successfully'));
-    }
-    
-    req.session.message = {
-      type: 'success',
-      text: 'Subscription plan updated successfully'
-    };
-    
-    res.redirect('/admin/plans');
-  } catch (error) {
-    console.error('Update plan error:', error);
-    
-    // Check if this is an AJAX request
-    const isAjax = req.xhr || req.headers.accept.indexOf('json') > -1 || req.headers['content-type'] === 'application/json';
-    
-    if (isAjax) {
-      return res.json(createToastResponse(false, `Error updating plan: ${error.message}`));
-    }
-    
-    req.session.message = {
-      type: 'danger',
-      text: `Error updating plan: ${error.message}`
-    };
-    res.redirect('/admin/plans');
-  }
-});
-
-// Delete subscription plan
-app.delete('/admin/plans/:id', isAuthenticated, isAdmin, (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    subscriptionPlanOperations.deletePlan(id);
-    
-    res.json(createToastResponse(true, 'Plan deleted successfully'));
-  } catch (error) {
-    console.error('Delete plan error:', error);
-    res.json(createToastResponse(false, `Error deleting plan: ${error.message}`));
-  }
-});
-
-// Toggle subscription plan status
-app.post('/admin/plans/:id/toggle', isAuthenticated, isAdmin, (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    subscriptionPlanOperations.togglePlanStatus(id);
-    
-    // Check if this is an AJAX request
-    const isAjax = req.xhr || req.headers.accept.indexOf('json') > -1 || req.headers['content-type'] === 'application/json';
-    
-    if (isAjax) {
-      // If it's an AJAX request, respond with JSON
-      return res.json(createToastResponse(true, 'Plan status updated successfully'));
-    }
-    
-    // For regular form submissions, use session flash message
-    req.session.message = {
-      type: 'success',
-      text: 'Plan status updated successfully'
-    };
-    
-    res.redirect('/admin/plans');
-  } catch (error) {
-    console.error('Toggle plan status error:', error);
-    
-    // Check if this is an AJAX request
-    const isAjax = req.xhr || req.headers.accept.indexOf('json') > -1 || req.headers['content-type'] === 'application/json';
-    
-    if (isAjax) {
-      // If it's an AJAX request, respond with JSON
-      return res.json(createToastResponse(false, `Error updating plan status: ${error.message}`));
-    }
-    
-    req.session.message = {
-      type: 'danger',
-      text: `Error updating plan status: ${error.message}`
-    };
-    res.redirect('/admin/plans');
-  }
-});
-
-// Admin settings page
-app.get('/admin/settings', isAuthenticated, isAdmin, (req, res) => {
-  try {
-    const settings = settingsOperations.getAllSettings();
-    
-    res.render('admin-settings', {
-      user: req.session.user,
-      settings,
-      message: req.session.message,
-      csrfToken: req.csrfToken()
-    });
-    delete req.session.message;
-  } catch (error) {
-    console.error('Admin settings error:', error);
-    res.render('admin-settings', {
-      user: req.session.user,
-      settings: [],
-      message: { type: 'danger', text: 'Error loading settings data' },
-      csrfToken: req.csrfToken()
-    });
-  }
-});
-
-// Update admin settings
-app.post('/admin/settings', isAuthenticated, isAdmin, (req, res) => {
-  try {
-    const { recipient_limit, message_rate_limit, trial_duration_days } = req.body;
-    
-    // Validate inputs
-    const errors = [];
-    if (!recipient_limit || recipient_limit < 1 || recipient_limit > 10) {
-      errors.push('Recipient limit must be between 1 and 10');
-    }
-    if (!message_rate_limit || message_rate_limit < 1 || message_rate_limit > 100) {
-      errors.push('Message rate limit must be between 1 and 100');
-    }
-    if (!trial_duration_days || trial_duration_days < 1 || trial_duration_days > 90) {
-      errors.push('Trial duration must be between 1 and 90 days');
-    }
-    
-    if (errors.length > 0) {
-      req.session.message = {
-        type: 'danger',
-        text: errors.join(', ')
-      };
-      return res.redirect('/admin/settings');
-    }
-    
-    // Update settings
-    settingsOperations.updateSetting('recipient_limit', recipient_limit.toString());
-    settingsOperations.updateSetting('message_rate_limit', message_rate_limit.toString());
-    settingsOperations.updateSetting('trial_duration_days', trial_duration_days.toString());
-    
-    req.session.message = {
-      type: 'success',
-      text: 'Settings updated successfully'
-    };
-    
-    res.redirect('/admin/settings');
-  } catch (error) {
-    console.error('Update settings error:', error);
-    req.session.message = {
-      type: 'danger',
-      text: `Error updating settings: ${error.message}`
-    };
-    res.redirect('/admin/settings');
-  }
-});
-
-// Backward compatibility redirects
-app.get('/recipients', isAuthenticated, (req, res) => {
-  res.redirect('/webhooks');
-});
-
-app.get('/recipients/new', isAuthenticated, (req, res) => {
-  res.redirect('/webhooks');
-});
-
-// Root redirect
-app.get('/', (req, res) => {
-  if (req.session.user) {
-    res.redirect('/dashboard');
-  } else {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-  }
-});
-
-// Test webhook for template customization
-app.post('/api/webhook/:webhookId/test', isAuthenticated, (req, res) => {
-  try {
-    const { webhookId } = req.params;
-    
-    // Verify webhook exists and belongs to the user
-    const webhook = webhookOperations.getWebhookById(webhookId);
-    if (!webhook || webhook.user_id !== req.session.user.id) {
-      return res.json(createToastResponse(false, 'Webhook not found'));
-    }
-    
-    // Get the structure of the last received webhook for this webhook
-    const webhookStructure = lastReceivedWebhookStructures.get(Number(webhookId));
-    
-    if (!webhookStructure) {
-      return res.json(createToastResponse(false, 'No webhook data available. Please send a webhook to this endpoint first.'));
-    }
-    
-    // Return only the structure of the webhook (variable names and types), not the actual data
-    res.json(createToastResponse(true, 'Retrieved webhook structure', { 
-      variableStructure: webhookStructure.structure,
-      receivedAt: webhookStructure.timestamp
-    }));
-  } catch (error) {
-    console.error('Error retrieving webhook structure:', error);
-    res.json(createToastResponse(false, `Error retrieving webhook structure: ${error.message}`));
-  }
-});
-
-// Helper function to extract variable structure from webhook data
-function extractVariableStructure(data, prefix = '') {
-  const variables = [];
-  
-  if (!data || typeof data !== 'object') return variables;
-  
-  Object.keys(data).forEach(key => {
-    const value = data[key];
-    const path = prefix ? `${prefix}.${key}` : key;
-    
-    if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-      // For nested objects, recurse
-      variables.push(...extractVariableStructure(value, path));
-    } else {
-      // For simple values or arrays, add variable info without the actual value
-      variables.push({
-        path,
-        type: Array.isArray(value) ? 'array' : typeof value
-      });
-    }
-  });
-  
-  return variables;
-}
-
-// Admin QR code page (khusus admin, global session)
-app.get('/admin/qrcode', isAuthenticated, isAdmin, (req, res) => {
-  res.render('admin-qrcode', {
-    user: req.session.user,
-    qrCode: qrCodeDataURL,
-    connectionStatus,
-    message: req.session.message
-  });
-  delete req.session.message;
-});
-
-// Generate QR code (admin only, global session)
-app.post('/admin/api/qrcode', isAuthenticated, isAdmin, async (req, res) => {
-  try {
-    // Disconnect and reinitialize WhatsApp
-    if (waClient) {
-      waClient.end();
-      waClient = null;
-    }
-    connectionStatus = 'disconnected';
-    qrCodeDataURL = null;
-    // Initialize new connection
-    await initWhatsApp();
-    res.json(createToastResponse(true, 'QR code generation initiated'));
-  } catch (error) {
-    console.error('Error generating QR code:', error);
-    res.json(createToastResponse(false, `Error generating QR code: ${error.message}`));
-  }
-});
-
-// Logout admin WhatsApp (global session)
-app.post('/admin/whatsapp/logout', isAuthenticated, isAdmin, async (req, res) => {
-  try {
-    console.log('Admin WhatsApp logout initiated');
-    
-    // Disconnect WhatsApp client
-    if (waClient) {
-      console.log('Disconnecting WhatsApp client...');
-      try {
-        // Remove event listeners to prevent memory leaks
-        if (waClient.ev) {
-          waClient.ev.removeAllListeners('connection.update');
-          waClient.ev.removeAllListeners('creds.update');
-          waClient.ev.removeAllListeners('error');
-        }
-        
-        // End the connection
-        if (typeof waClient.end === 'function') {
-          await waClient.end();
-        }
-      } catch (err) {
-        console.log('Error during client disconnect:', err);
-        // Continue even if there's an error
-      }
-      waClient = null;
-    }
-    
-    // Update connection status
-    connectionStatus = 'disconnected';
-    qrCodeDataURL = null;
-    
-    // Delete session files from sessions directory
+    // Check database connectivity
     try {
-      const SESSION_DIR = path.join(__dirname, 'sessions');
-      if (fs.existsSync(SESSION_DIR)) {
-        const files = fs.readdirSync(SESSION_DIR);
-        
-        // Delete creds.json and session files
-        files.forEach(file => {
-          if (file === 'creds.json' || file.startsWith('session-') || file.startsWith('app-state-') || file.startsWith('pre-key-')) {
-            try {
-              const filePath = path.join(SESSION_DIR, file);
-              fs.unlinkSync(filePath);
-              console.log(`Deleted session file: ${file}`);
-            } catch (err) {
-              console.log(`Error deleting file ${file}:`, err);
-            }
-          }
-        });
+      const db = require('better-sqlite3')(health.database.path);
+      const result = db.prepare('SELECT 1 as test').get();
+      db.close();
+      if (result.test !== 1) {
+        health.database.status = 'error';
+        health.status = 'unhealthy';
       }
-    } catch (err) {
-      console.log('Error deleting session files:', err);
+    } catch (dbError) {
+      health.database.status = 'error';
+      health.status = 'unhealthy';
+      health.database.error = dbError.message;
     }
-    
-    console.log('Admin WhatsApp logout completed successfully');
-    res.json({ success: true, message: 'Admin WhatsApp session logged out successfully' });
+
+    // Check file system
+    try {
+      const fs = require('fs');
+      const sessionsPath = path.join(__dirname, 'sessions');
+      const logsPath = path.join(__dirname, 'logs');
+      
+      if (!fs.existsSync(sessionsPath)) {
+        fs.mkdirSync(sessionsPath, { recursive: true });
+      }
+      if (!fs.existsSync(logsPath)) {
+        fs.mkdirSync(logsPath, { recursive: true });
+      }
+      
+      health.filesystem = {
+        sessions: fs.existsSync(sessionsPath),
+        logs: fs.existsSync(logsPath)
+      };
+    } catch (fsError) {
+      health.filesystem = {
+        error: fsError.message
+      };
+      health.status = 'unhealthy';
+    }
+
+    const statusCode = health.status === 'healthy' ? 200 : 503;
+    res.status(statusCode).json(health);
   } catch (error) {
-    console.error('Error logging out admin WhatsApp:', error);
-    res.json({ success: false, message: 'Error logging out admin WhatsApp session' });
+    res.status(503).json({
+      status: 'unhealthy',
+      timestamp: new Date().toISOString(),
+      error: error.message
+    });
   }
+});
+
+// Metrics endpoint for monitoring
+app.get('/metrics', (req, res) => {
+  try {
+    const metrics = {
+      timestamp: new Date().toISOString(),
+      system: {
+        uptime: process.uptime(),
+        memory: process.memoryUsage(),
+        cpu: process.cpuUsage()
+      },
+      application: {
+        messageQueueLength: messageQueue.length,
+        isProcessingQueue: isProcessingQueue,
+        connectionStatus: connectionStatus,
+        activeUsers: Object.keys(userWhatsAppClients).length
+      },
+      database: {
+        userCount: 0,
+        webhookCount: 0,
+        recipientCount: 0
+      }
+    };
+
+    // Get database metrics
+    try {
+      const db = require('better-sqlite3')(process.env.DB_PATH || './data/wawebhook.db');
+      metrics.database.userCount = db.prepare('SELECT COUNT(*) as count FROM users').get().count;
+      metrics.database.webhookCount = db.prepare('SELECT COUNT(*) as count FROM webhooks').get().count;
+      metrics.database.recipientCount = db.prepare('SELECT COUNT(*) as count FROM recipients').get().count;
+      db.close();
+    } catch (dbError) {
+      metrics.database.error = dbError.message;
+    }
+
+    res.json(metrics);
+  } catch (error) {
+    res.status(500).json({
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Graceful shutdown handling
+process.on('SIGTERM', async () => {
+  console.log('SIGTERM received, shutting down gracefully...');
+  
+  // Close WhatsApp connections
+  if (waClient) {
+    try {
+      await waClient.end();
+      console.log('WhatsApp client disconnected');
+    } catch (error) {
+      console.error('Error disconnecting WhatsApp client:', error);
+    }
+  }
+
+  // Close user WhatsApp clients
+  for (const [userId, client] of Object.entries(userWhatsAppClients)) {
+    try {
+      if (client && typeof client.end === 'function') {
+        await client.end();
+        console.log(`User ${userId} WhatsApp client disconnected`);
+      }
+    } catch (error) {
+      console.error(`Error disconnecting user ${userId} WhatsApp client:`, error);
+    }
+  }
+
+  // Close database connections
+  try {
+    const db = require('better-sqlite3')(process.env.DB_PATH || './data/wawebhook.db');
+    db.close();
+    console.log('Database connection closed');
+  } catch (error) {
+    console.error('Error closing database connection:', error);
+  }
+
+  console.log('Graceful shutdown completed');
+  process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+  console.log('SIGINT received, shutting down gracefully...');
+  process.emit('SIGTERM');
+});
+
+// Unhandled error handling
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  process.exit(1);
 });
 
 // Start server
 app.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`Health check available at: http://localhost:${PORT}/health`);
+  console.log(`Metrics available at: http://localhost:${PORT}/metrics`);
   
   // Initialize system WhatsApp
   await initWhatsApp();

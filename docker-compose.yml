@@ -1,22 +1,99 @@
-version: '3'
+version: '3.8'
 
 services:
   wawebhook:
     build:
       context: .
       dockerfile: Dockerfile
+      target: production
     container_name: wawebhook
     restart: unless-stopped
     ports:
-      - "${PORT:-3000}:${PORT:-3000}"
+      - "${PORT:-3000}:3000"
     volumes:
+      - ./data:/usr/src/app/data
       - ./sessions:/usr/src/app/sessions
-      - ./.env:/usr/src/app/.env
+      - ./logs:/usr/src/app/logs
+      - ./backups:/usr/src/app/backups
+      - ./.env:/usr/src/app/.env:ro
     environment:
       - NODE_ENV=production
+      - PORT=3000
+    env_file:
+      - .env
+    networks:
+      - wawebhook-network
+    depends_on:
+      - nginx
+    healthcheck:
+      test: ["CMD", "node", "scripts/health-check.js"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  nginx:
+    image: nginx:alpine
+    container_name: wawebhook-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./logs/nginx:/var/log/nginx
+    networks:
+      - wawebhook-network
+    depends_on:
+      - wawebhook
+
+  # Optional: Redis for session storage and caching
+  redis:
+    image: redis:7-alpine
+    container_name: wawebhook-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis123}
+    volumes:
+      - redis-data:/data
+    networks:
+      - wawebhook-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Optional: Database backup service
+  backup:
+    image: alpine:latest
+    container_name: wawebhook-backup
+    restart: "no"
+    volumes:
+      - ./data:/data
+      - ./backups:/backups
+      - ./.env:/app/.env:ro
+    command: |
+      sh -c "
+        apk add --no-cache sqlite3 tar gzip &&
+        while true; do
+          echo 'Starting backup...' &&
+          cp /data/wawebhook.db /backups/wawebhook-$$(date +%Y%m%d-%H%M%S).db &&
+          find /backups -name 'wawebhook-*.db' -mtime +7 -delete &&
+          echo 'Backup completed' &&
+          sleep 86400
+        done
+      "
     networks:
       - wawebhook-network
 
+volumes:
+  redis-data:
+    driver: local
+
 networks:
   wawebhook-network:
-    driver: bridge 
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16 
